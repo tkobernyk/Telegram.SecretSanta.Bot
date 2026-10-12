@@ -1,92 +1,68 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
+using NSubstitute;
+using NUnit.Framework;
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
 using SecretSanta.DAL.Repositories;
-using Xunit;
 
 namespace SecretSanta.DAL.Tests
 {
 	public class CosmosParticipantRepositoryTests
 	{
-		[Fact]
+		[Test]
 		public async Task GetByTelegramUserIdAsync_ReturnsParticipant_WhenExists()
 		{
 			var participant = new Participant { EventId = "evt-1", TelegramUserId = "tg-123", DisplayName = "Test" };
-			var fake = new FakeExecutor();
-			fake.PreconfiguredParticipant = participant;
+			var fake = Substitute.For<IExecutor>();
+			fake.GetItemByIdAsync<Participant>(Arg.Any<QueryDefinition>(), "evt-1", Arg.Any<CancellationToken>())
+				.Returns(Task.FromResult(participant));
 
 			var repo = new CosmosParticipantRepository(fake);
 
 			var result = await repo.GetByTelegramUserIdAsync("evt-1", "tg-123");
 
 			Assert.NotNull(result);
-			Assert.Equal(participant.TelegramUserId, result!.TelegramUserId);
-			Assert.Equal(participant.EventId, result.EventId);
+			Assert.AreEqual(participant.TelegramUserId, result!.TelegramUserId);
+			Assert.AreEqual(participant.EventId, result.EventId);
 		}
 
-		[Fact]
+		[Test]
 		public async Task GetByTelegramUserIdAsync_ReturnsNull_WhenNotFound()
 		{
-			var fake = new FakeExecutor();
+			var fake = Substitute.For<IExecutor>();
+			fake.GetItemByIdAsync<Participant>(Arg.Any<QueryDefinition>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+				.Returns(await Task.FromResult<Participant>(default!));
+
 			var repo = new CosmosParticipantRepository(fake);
 
 			var result = await repo.GetByTelegramUserIdAsync("evt-1", "tg-999");
 
-			Assert.Null(result);
+			Assert.IsNull(result);
 		}
 
-		[Fact]
+		[Test]
 		public async Task CreateAsync_Throws_WhenEventIdMissing()
 		{
-			var fake = new FakeExecutor();
+			var fake = Substitute.For<IExecutor>();
 			var repo = new CosmosParticipantRepository(fake);
 			var participant = new Participant { EventId = string.Empty, TelegramUserId = "tg-1" };
 
-			await Assert.ThrowsAsync<ArgumentException>(() => repo.CreateAsync(participant));
+			await Assert.ThrowsAsync<ArgumentException>(async () => await repo.CreateAsync(participant));
 		}
 
-		[Fact]
+		[Test]
 		public async Task CreateAsync_CallsExecutorCreate_WhenValid()
 		{
-			var fake = new FakeExecutor();
+			var fake = Substitute.For<IExecutor>();
+			fake.CreateItemAsync(Arg.Any<Participant>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+				.Returns(call => Task.FromResult(call.ArgAt<Participant>(0)));
+
 			var repo = new CosmosParticipantRepository(fake);
 			var participant = new Participant { EventId = "evt-1", TelegramUserId = "tg-1" };
 
 			await repo.CreateAsync(participant);
 
-			Assert.True(fake.CreateCalled);
-			Assert.Equal(participant.EventId, fake.LastEventIdPassedToCreate);
-		}
-
-		private class FakeExecutor : IExecutor
-		{
-			public Participant? PreconfiguredParticipant;
-			public bool CreateCalled;
-			public string? LastEventIdPassedToCreate;
-
-			public Task<T> GetItemByIdAsync<T>(QueryDefinition query, string eventId, CancellationToken cancellationToken)
-			{
-				if (PreconfiguredParticipant is object && typeof(T) == typeof(Participant))
-				{
-					// if event id matches or no constraint, return preconfigured
-					if (PreconfiguredParticipant.EventId == eventId)
-					{
-						return Task.FromResult((T)(object)PreconfiguredParticipant);
-					}
-				}
-
-				return Task.FromResult(default(T)!);
-			}
-
-			public Task<T> CreateItemAsync<T>(T item, string eventId, CancellationToken cancellationToken)
-			{
-				CreateCalled = true;
-				LastEventIdPassedToCreate = eventId;
-				return Task.FromResult(item);
-			}
+			await fake.Received(1).CreateItemAsync(Arg.Is<Participant>(p => p == participant), participant.EventId, Arg.Any<CancellationToken>());
 		}
 	}
 }

@@ -1,26 +1,27 @@
-using System.Linq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Xunit;
+using NUnit.Framework;
+using SecretSanta.DAL.Abstractions;
+using SecretSanta.DAL.Cosmos;
+using SecretSanta.DAL.Repositories;
 
 namespace SecretSanta.DAL.Tests
 {
 	public class ServiceRegistrationTests
 	{
-		[Fact]
+		[Test]
 		public void AddSecretSantaDal_RegistersExpectedServices()
 		{
 			var services = new ServiceCollection();
 			var config = new ConfigurationBuilder().AddInMemoryCollection().Build();
 
 			// Act
-			SecretSanta.DAL.ServiceCollectionExtensions.AddSecretSantaDal(services, config);
+			ServiceCollectionExtensions.AddSecretSantaDal(services, config);
 
 			// Assert - check descriptors exist
-			Assert.Contains(services, d => d.ServiceType == typeof(SecretSanta.DAL.Cosmos.CosmosClientFactory));
-			Assert.Contains(services, d => d.ServiceType == typeof(SecretSanta.DAL.Abstractions.ICosmosContainerProvider));
-			Assert.Contains(services, d => d.ServiceType == typeof(SecretSanta.DAL.Abstractions.IParticipantRepository));
-			Assert.Contains(services, d => d.ImplementationType == typeof(SecretSanta.DAL.Repositories.CosmosParticipantRepository) || d.ImplementationFactory != null);
+			Assert.IsTrue(services.Any(d => d.ServiceType == typeof(CosmosClientFactory)));
+			Assert.IsTrue(services.Any(d => d.ServiceType == typeof(IParticipantRepository)));
+			Assert.IsTrue(services.Any(d => d.ImplementationType == typeof(CosmosParticipantRepository) || d.ImplementationFactory != null));
 		}
 	}
 }

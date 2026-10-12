@@ -1,27 +1,25 @@
-using System;
 using Microsoft.Extensions.Configuration;
-using Xunit;
+using NUnit.Framework;
 using SecretSanta.DAL.Cosmos;
 
 namespace SecretSanta.DAL.Tests
 {
 	public class CosmosClientFactoryTests
 	{
-		[Fact]
+		[Test]
 		public void Ctor_Throws_When_ConfigurationMissing()
 		{
 			var config = new ConfigurationBuilder().AddInMemoryCollection().Build();
 			Assert.Throws<ArgumentException>(() => new CosmosClientFactory(config));
 		}
 
-		[Fact]
+		[Test]
 		public void Ctor_Succeeds_With_EndpointAndKey_Placeholders()
 		{
-			// Do not attempt to connect; provide placeholder values to verify construction path that doesn't validate network connectivity synchronously
-			var inMemory = new System.Collections.Generic.Dictionary<string, string?>
+			var inMemory = new Dictionary<string, string?>
 			{
-				["Cosmos__Endpoint"] = "https://localhost:8081",
-				["Cosmos__Key"] = "C2F...fakeKey"
+				["Cosmos:Endpoint"] = "https://localhost:8081",
+				["Cosmos:Key"] = "ZmFrZUtleQ=="
 			};
 
 			var config = new ConfigurationBuilder().AddInMemoryCollection(inMemory).Build();
