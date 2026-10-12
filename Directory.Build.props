@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Disable Cosmos Newtonsoft.Json check for local builds where Newtonsoft is provided or not required -->
+    <AzureCosmosDisableNewtonsoftJsonCheck>true</AzureCosmosDisableNewtonsoftJsonCheck>
+  </PropertyGroup>
+</Project>

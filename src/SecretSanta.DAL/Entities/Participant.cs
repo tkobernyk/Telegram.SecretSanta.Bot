@@ -1,6 +1,6 @@
 using System;
 
-namespace SecretSanta.Domain.Entities
+namespace SecretSanta.DAL.Entities
 {
 	public class Participant
 	{
