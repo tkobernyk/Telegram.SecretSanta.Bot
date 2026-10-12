@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "Telegram.SecretSanta.Bot": {
+      "commandName": "Project",
+      "commandLineArgs": "--port 7278",
+      "launchBrowser": false
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+
+    "Telegram__BotToken": "<paste-bot-token-here>",
+    "Telegram__WebhookSecret": "<paste-webhook-secret-here>",
+    "Telegram__OrganizerTelegramId": "<organizer-telegram-id>",
+
+    "Cosmos__Endpoint": "<cosmos-endpoint>",
+    "Cosmos__DatabaseName": "SecretSantaDb",
+
+    "Gemini__ApiKey": "<gemini-api-key>",
+    "Gemini__Model": "<gemini-model>",
+
+    "App__EventId": "<event-id>",
+    "App__MaxMessageLength": "2000",
+    "App__MaxImageSizeBytes": "5242880",
+    "App__MaxAiRequestsPerParticipantPerDay": "10"
+  }
+}
