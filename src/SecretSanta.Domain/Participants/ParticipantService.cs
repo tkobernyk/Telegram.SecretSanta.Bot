@@ -1,15 +1,9 @@
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.Domain.Models;
 using SecretSanta.Domain.Mappings;
+using SecretSanta.Domain.Abstractions;
 
 namespace SecretSanta.Domain.Participants;
-
-
-public interface IParticipantService
-{
-	Task<ParticipantDto?> GetByTelegramUserIdAsync(string eventId, string telegramUserId, CancellationToken cancellationToken = default);
-	Task<ParticipantDto> CreateAsync(ParticipantDto participant, CancellationToken cancellationToken = default);
-}
 
 public class ParticipantService : IParticipantService
 {

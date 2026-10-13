@@ -4,9 +4,9 @@
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
 
-    "Telegram__BotToken": "<paste-bot-token-here>",
-    "Telegram__WebhookSecret": "<paste-webhook-secret-here>",
-    "Telegram__OrganizerTelegramId": "<organizer-telegram-id>",
+    "Telegram__BotToken": "8970487203:AAFZR1cX3G7ZtokWoUJLIGZZQv6F54fkrmc",
+    "Telegram__WebhookSecret": "a7f3c91e5b824d60f1a9e7382c6d04b5e8f2179a43c06d51b9e4f6827a35d0c8",
+    "Telegram__OrganizerTelegramId": "8970487203",
 
     "Cosmos__Endpoint": "<cosmos-endpoint>",
     "Cosmos__DatabaseName": "SecretSantaDb",

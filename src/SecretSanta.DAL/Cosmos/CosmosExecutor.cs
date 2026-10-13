@@ -1,11 +1,13 @@
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Logging;
 using SecretSanta.DAL.Abstractions;
 
 namespace SecretSanta.DAL.Cosmos;
 
-public class CosmosExecutor(ICosmosClientFactory factory) : IExecutor
+public class CosmosExecutor(ICosmosClientFactory factory, ILogger<CosmosExecutor> logger) : IExecutor
 {
 	readonly Container _container = factory.GetContainer();
+	readonly ILogger<CosmosExecutor> _logger = logger;
 
 	public async Task<T> GetItemByIdAsync<T>(QueryDefinition query, string eventId, CancellationToken cancellationToken)
 	{
@@ -23,7 +25,24 @@ public class CosmosExecutor(ICosmosClientFactory factory) : IExecutor
 
 	public async Task<T> CreateItemAsync<T>(T item, string eventId, CancellationToken cancellationToken)
 	{
-		var response = await _container.CreateItemAsync(item, new PartitionKey(eventId), cancellationToken: cancellationToken);
-		return response.Resource;
+		try
+		{
+			var response = await _container.CreateItemAsync(item, new PartitionKey(eventId), cancellationToken: cancellationToken);
+			return response.Resource;
+		}
+		catch (CosmosException ex)
+		{
+			_logger.LogError(
+				ex,
+				"Cosmos DB failed. Status={StatusCode}, " +
+				"SubStatus={SubStatusCode}, Message={Message}, " +
+				"ActivityId={ActivityId}",
+				(int)ex.StatusCode,
+				ex.SubStatusCode,
+				ex.Message,
+				ex.ActivityId);
+
+			throw;
+		}
 	}
 }

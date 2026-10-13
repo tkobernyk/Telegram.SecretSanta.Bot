@@ -7,7 +7,7 @@ namespace SecretSanta.DAL.Repositories;
 public class CosmosParticipantRepository : IParticipantRepository
 {
 	#region
-	const string GetByTelegramUserIdQuery = "SELECT * FROM c WHERE c.eventId = @eventId AND c.telegramUserId = @telegramUserId";
+	const string GetByTelegramUserIdQuery = "SELECT * FROM c WHERE c.eventId = @eventId AND c.TelegramUserId = @telegramUserId";
 	#endregion
 
 	readonly IExecutor _executor;

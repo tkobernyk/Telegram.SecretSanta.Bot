@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using SecretSanta.Domain;
 using SecretSanta.Infrastructure;
 using SecretSanta.DAL;
+using SecretSanta.Functions.Services;
 
 namespace SecretSanta.Functions;
 
@@ -27,7 +28,8 @@ internal static class Program
 			.ConfigureFunctionsWorkerDefaults()
 			.ConfigureAppConfiguration((context, builder) =>
 			{
-				builder.AddEnvironmentVariables();
+				builder.AddJsonFile("local.settings.json", optional: true, reloadOnChange: true)
+					.AddEnvironmentVariables();
 			})
 			.ConfigureServices((context, services) =>
 			{
@@ -35,12 +37,20 @@ internal static class Program
 				services.Configure<AppSettings>(context.Configuration);
 
 				services.AddSecretSantaDomain(context.Configuration);
+				
+				services.AddTransient<ITelegramWebhookService, TelegramWebhookService>();
 
 				var cfg = context.Configuration;
+				string GetCfg(string key) => cfg[key] ?? cfg[$"Values:{key}"] ?? string.Empty;
 				var missing = new List<string>();
-				if (string.IsNullOrWhiteSpace(cfg["Telegram__BotToken"])) missing.Add("Telegram__BotToken");
-				if (string.IsNullOrWhiteSpace(cfg["Telegram__WebhookSecret"])) missing.Add("Telegram__WebhookSecret");
-				if (string.IsNullOrWhiteSpace(cfg["Telegram__OrganizerTelegramId"])) missing.Add("Telegram__OrganizerTelegramId");
+				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__BotToken"))) missing.Add("Telegram__BotToken");
+				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__WebhookSecret"))) missing.Add("Telegram__WebhookSecret");
+				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__OrganizerTelegramId"))) missing.Add("Telegram__OrganizerTelegramId");
+
+				// Debug output to help when running under debugger / local.settings.json
+				Console.Error.WriteLine($"Config Telegram__BotToken='{GetCfg("Telegram__BotToken") ?? "<null>"}' Values:Telegram__BotToken='{cfg["Values:Telegram__BotToken"] ?? "<null>"}'");
+				Console.Error.WriteLine($"Config Telegram__WebhookSecret='{GetCfg("Telegram__WebhookSecret") ?? "<null>"}' Values:Telegram__WebhookSecret='{cfg["Values:Telegram__WebhookSecret"] ?? "<null>"}'");
+				Console.Error.WriteLine($"Config Telegram__OrganizerTelegramId='{GetCfg("Telegram__OrganizerTelegramId") ?? "<null>"}' Values:Telegram__OrganizerTelegramId='{cfg["Values:Telegram__OrganizerTelegramId"] ?? "<null>"}'");
 
 				if (missing.Count > 0)
 				{

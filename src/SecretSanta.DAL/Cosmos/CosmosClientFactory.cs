@@ -13,7 +13,7 @@ public class CosmosClientFactory : ICosmosClientFactory
 	public CosmosClientFactory(IConfiguration configuration)
 	{
 		var cosmosConfig = new CosmosConfiguration();
-		configuration.GetSection("Cosmos").Bind(cosmosConfig);
+		configuration.GetSection(CosmosConfiguration.SectionName).Bind(cosmosConfig);
 
 		var endpoint = cosmosConfig.Endpoint;
 		var key = cosmosConfig.Key;

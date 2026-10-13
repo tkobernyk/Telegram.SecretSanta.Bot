@@ -1,9 +1,11 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace SecretSanta.Domain.Models
 {
 	public class ParticipantDto
 	{
+		[JsonPropertyName("id")]
 		public string Id { get; set; }
 		public string EventId { get; set; }
 		public string TelegramUserId { get; set; }
