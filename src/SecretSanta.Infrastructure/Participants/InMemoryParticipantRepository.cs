@@ -19,4 +19,16 @@ public class InMemoryParticipantRepository : IParticipantRepository
 		_store[participant.Id] = participant;
 		return Task.CompletedTask;
 	}
+
+	public Task UpdateAsync(Participant participant, CancellationToken cancellationToken = default)
+	{
+		_store[participant.Id] = participant;
+		return Task.CompletedTask;
+	}
+
+	public Task<IEnumerable<Participant>> GetAllByEventAsync(string eventId, CancellationToken cancellationToken = default)
+	{
+		var items = _store.Values.Where(x => x.EventId == eventId).ToList();
+		return Task.FromResult<IEnumerable<Participant>>(items);
+	}
 }

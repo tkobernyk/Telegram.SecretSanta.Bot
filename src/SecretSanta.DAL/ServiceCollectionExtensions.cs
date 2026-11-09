@@ -19,6 +19,23 @@ public static class ServiceCollectionExtensions
 
 		services.AddSingleton<CosmosParticipantRepository>();
 		services.AddSingleton<IParticipantRepository>(sp => sp.GetRequiredService<CosmosParticipantRepository>());
+
+		services.AddSingleton<CosmosConversationRepository>();
+		services.AddSingleton<IConversationRepository>(sp => sp.GetRequiredService<CosmosConversationRepository>());
+
+		// Register new Cosmos repositories
+		services.AddSingleton<CosmosEventRepository>();
+		services.AddSingleton<IEventRepository>(sp => sp.GetRequiredService<CosmosEventRepository>());
+
+		services.AddSingleton<CosmosVoteRepository>();
+		services.AddSingleton<IVoteRepository>(sp => sp.GetRequiredService<CosmosVoteRepository>());
+
+		services.AddSingleton<CosmosAssignmentRepository>();
+		services.AddSingleton<IAssignmentRepository>(sp => sp.GetRequiredService<CosmosAssignmentRepository>());
+
+		services.AddSingleton<CosmosParticipantRepository>();
+		services.AddSingleton<IParticipantRepository>(sp => sp.GetRequiredService<CosmosParticipantRepository>());
+
 		return services;
 	}
 }

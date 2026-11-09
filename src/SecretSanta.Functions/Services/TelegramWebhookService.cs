@@ -24,6 +24,13 @@ internal class TelegramWebhookService : ITelegramWebhookService
 	private class TelegramUpdate
 	{
 		public TelegramMessage? Message { get; set; }
+		public TelegramCallbackQuery? CallbackQuery { get; set; }
+	}
+
+	private class TelegramCallbackQuery
+	{
+		public TelegramUser? From { get; set; }
+		public string? Data { get; set; }
 	}
 
 	public async Task<HttpResponseData> HandleAsync(HttpRequestData req)
@@ -83,7 +90,10 @@ internal class TelegramWebhookService : ITelegramWebhookService
 			_logger.LogWarning(ex, "Failed to parse Telegram update JSON.");
 		}
 
-		if (update?.Message == null || update.Message.From == null)
+		var message = update?.Message;
+		var callback = update?.CallbackQuery;
+		var sender = message?.From ?? callback?.From;
+		if (sender == null)
 		{
 			_logger.LogInformation("No message or sender in update; ignoring.");
 			var respIgnored = req.CreateResponse(HttpStatusCode.OK);
@@ -93,21 +103,21 @@ internal class TelegramWebhookService : ITelegramWebhookService
 
 		var eventId = Environment.GetEnvironmentVariable("App__EventId") ?? "default-event";
 
-		// Build MediatR request and delegate handling to handlers
 		var request = new TelegramEndpointRequest
 		{
 			EventId = eventId,
 			Message = new TelegramMessage
 			{
-				MessageId = update.Message.MessageId,
+				MessageId = message?.MessageId ?? 0,
 				From = new TelegramUser
 				{
-					Id = update.Message.From.Id,
-					FirstName = update.Message.From.FirstName,
-					LastName = update.Message.From.LastName,
-					Username = update.Message.From.Username
+					Id = sender.Id,
+					FirstName = sender.FirstName,
+					LastName = sender.LastName,
+					Username = sender.Username
 				},
-				Text = update.Message.Text
+				Text = message?.Text ?? callback?.Data,
+				CallbackData = callback?.Data
 			}
 		};
 

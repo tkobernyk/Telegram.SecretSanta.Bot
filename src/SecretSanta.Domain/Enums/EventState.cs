@@ -2,12 +2,14 @@ namespace SecretSanta.Domain.Enums
 {
 	public enum EventState
 	{
+		Registration,
+		Voting,
+		BudgetConfirmation,
+		BudgetDiscussion,
 		Draft,
-		RegistrationOpen,
-		RegistrationClosed,
-		BudgetVoting,
-		BudgetFinalized,
-		AssignmentsPublished,
+		Preparing,
+		AwaitingDelivery,
+		Done,
 		Completed,
 		Cancelled
 	}

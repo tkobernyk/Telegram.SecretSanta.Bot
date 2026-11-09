@@ -3,7 +3,7 @@ using SecretSanta.Domain.Models;
 using SecretSanta.Domain.Mappings;
 using SecretSanta.Domain.Abstractions;
 
-namespace SecretSanta.Domain.Participants;
+namespace SecretSanta.Domain.Services;
 
 public class ParticipantService : IParticipantService
 {
@@ -25,6 +25,13 @@ public class ParticipantService : IParticipantService
 	{
 		var entity = ParticipantMapper.Map(participant);
 		await _repository.CreateAsync(entity, cancellationToken);
+		return participant;
+	}
+
+	public async Task<ParticipantDto> UpdateAsync(ParticipantDto participant, CancellationToken cancellationToken = default)
+	{
+		var entity = ParticipantMapper.Map(participant);
+		await _repository.UpdateAsync(entity, cancellationToken);
 		return participant;
 	}
 }

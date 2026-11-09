@@ -17,6 +17,8 @@ public class Participant
 	public string? PreferredColors { get; set; }
 	public string? OtherPreferences { get; set; }
 	public string RegistrationStatus { get; set; }
+	public string GiftStatus { get; set; } = "NotStarted";
+	public DateTime? GiftReadyAtUtc { get; set; }
 	public DateTime CreatedAtUtc { get; set; }
 	public DateTime UpdatedAtUtc { get; set; }
 
@@ -27,6 +29,7 @@ public class Participant
 		TelegramUserId = string.Empty;
 		DisplayName = string.Empty;
 		RegistrationStatus = "Registered";
+		GiftStatus = "NotStarted";
 		CreatedAtUtc = DateTime.UtcNow;
 		UpdatedAtUtc = DateTime.UtcNow;
 	}

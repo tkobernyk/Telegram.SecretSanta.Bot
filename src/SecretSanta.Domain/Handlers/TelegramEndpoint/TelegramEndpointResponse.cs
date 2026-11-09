@@ -7,4 +7,5 @@ public class TelegramEndpointResponse
 	public HttpStatusCode StatusCode { get; set; } = HttpStatusCode.OK;
 	public object? Payload { get; set; }
 	public string? ResponseMessage { get; set; }
+	public object? ReplyMarkup { get; set; }
 }

@@ -32,4 +32,19 @@ public class CosmosParticipantRepository : IParticipantRepository
 		if (string.IsNullOrEmpty(participant.EventId)) throw new ArgumentException("participant.EventId is required");
 		await _executor.CreateItemAsync(participant, participant.EventId, cancellationToken: cancellationToken);
 	}
+
+	public async Task UpdateAsync(Participant participant, CancellationToken cancellationToken = default)
+	{
+		if (string.IsNullOrEmpty(participant.EventId)) throw new ArgumentException("participant.EventId is required");
+		await _executor.UpsertItemAsync(participant, participant.EventId, cancellationToken: cancellationToken);
+	}
+
+	public async Task<IEnumerable<Participant>> GetAllByEventAsync(string eventId, CancellationToken cancellationToken = default)
+	{
+		var query = new QueryDefinition("SELECT * FROM c WHERE c.eventId = @eventId")
+			.WithParameter("@eventId", eventId);
+
+		var items = await _executor.GetItemByIdAsync<IEnumerable<Participant>>(query, eventId, cancellationToken);
+		return items ?? Enumerable.Empty<Participant>();
+	}
 }
