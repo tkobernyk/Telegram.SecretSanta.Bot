@@ -1,72 +1,25 @@
-using System.Reflection;
 using Microsoft.Azure.Cosmos;
-using Microsoft.Extensions.Configuration;
 using SecretSanta.DAL.Abstractions;
 
 namespace SecretSanta.DAL.Cosmos;
 
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
-public sealed class CosmosContainerAttribute : Attribute
+public sealed class CosmosClientFactory<TModel> : ICosmosClientFactory<TModel>
 {
-	public CosmosContainerAttribute(string name)
+	readonly CosmosClientProvider _provider;
+
+	public CosmosClientFactory(CosmosClientProvider provider)
 	{
-		Name = name;
+		_provider = provider;
 	}
-
-	public string Name { get; }
-}
-
-public class CosmosClientFactory : ICosmosClientFactory
-{
-	readonly CosmosClient _client;
-	readonly string _databaseName;
-	readonly string _containerName;
-
-	public CosmosClientFactory(IConfiguration configuration)
-	{
-		var cosmosConfig = new CosmosConfiguration();
-		configuration.GetSection(CosmosConfiguration.SectionName).Bind(cosmosConfig);
-
-		var endpoint = cosmosConfig.Endpoint;
-		var key = cosmosConfig.Key;
-		_databaseName = cosmosConfig.DatabaseName;
-		_containerName = cosmosConfig.ContainerName;
-		var applicationName = cosmosConfig.ApplicationName;
-
-		if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(key))
-		{
-			throw new ArgumentException("Cosmos__Endpoint and Cosmos__Key configuration values are required to create CosmosClient.");
-		}
-
-		_client = new CosmosClient(endpoint, key, new CosmosClientOptions
-		{
-			ApplicationName = applicationName,
-			AllowBulkExecution = false
-		});
-	}
-
-	public CosmosClient Client => _client;
 
 	public Container GetContainer()
 	{
-		return GetContainer(_containerName);
-	}
-
-	public Container GetContainer(string containerName)
-	{
-		if (string.IsNullOrEmpty(_databaseName) || string.IsNullOrEmpty(containerName))
+		var containerName = $"{nameof(TModel)}s";
+		if (string.IsNullOrWhiteSpace(containerName))
 		{
-			throw new ArgumentException("Cosmos__DatabaseName and container name are required to get a Cosmos Container.");
+			throw new ArgumentException($"Unable to resolve Cosmos container for model type '{nameof(TModel)}'.");
 		}
 
-		return _client.GetContainer(_databaseName, containerName);
-	}
-
-	public Container GetContainer<T>()
-	{
-		var type = typeof(T);
-		var attribute = type.GetCustomAttribute<CosmosContainerAttribute>();
-		var containerName = attribute?.Name ?? type.Name;
-		return GetContainer(containerName);
+		return _provider.Client.GetContainer(_provider.DatabaseName, containerName);
 	}
 }

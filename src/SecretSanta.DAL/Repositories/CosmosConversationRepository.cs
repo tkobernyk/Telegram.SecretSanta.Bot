@@ -1,29 +1,29 @@
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
-using Microsoft.Azure.Cosmos;
 
 namespace SecretSanta.DAL.Repositories;
 
 public class CosmosConversationRepository : IConversationRepository
 {
-	readonly IExecutor _executor;
-	readonly string _container = "Conversations";
+	readonly IDbExecutor<Conversation> _conversationExecutor;
+	readonly IDbExecutor<ConversationMessage> _messageExecutor;
 
-	public CosmosConversationRepository(IExecutor executor)
+	public CosmosConversationRepository(IDbExecutor<Conversation> conversationExecutor, IDbExecutor<ConversationMessage> messageExecutor)
 	{
-		_executor = executor;
+		_conversationExecutor = conversationExecutor;
+		_messageExecutor = messageExecutor;
 	}
 
 	public async Task CreateConversationAsync(Conversation conversation, CancellationToken cancellationToken = default)
 	{
 		conversation.CreatedAtUtc = DateTime.UtcNow;
 		conversation.UpdatedAtUtc = DateTime.UtcNow;
-		await _executor.CreateItemAsync(_container, conversation.EventId, conversation, cancellationToken);
+		await _conversationExecutor.CreateItemAsync(conversation, conversation.EventId, cancellationToken);
 	}
 
 	public async Task<Conversation?> GetByRecipientAsync(string eventId, string recipientTelegramUserId, CancellationToken cancellationToken = default)
 	{
-		var results = await _executor.QueryAsync<Conversation>(_container,
+		var results = await _conversationExecutor.QueryAsync(
 			"SELECT * FROM c WHERE c.eventId = @eventId AND c.recipientTelegramUserId = @recipient ORDER BY c.updatedAtUtc DESC",
 			new { eventId, recipient = recipientTelegramUserId },
 			cancellationToken);
@@ -33,7 +33,7 @@ public class CosmosConversationRepository : IConversationRepository
 
 	public async Task<Conversation?> GetActiveForParticipantAsync(string eventId, string telegramUserId, CancellationToken cancellationToken = default)
 	{
-		var results = await _executor.QueryAsync<Conversation>(_container,
+		var results = await _conversationExecutor.QueryAsync(
 			"SELECT * FROM c WHERE c.eventId = @eventId AND c.status = @status AND (c.santaTelegramUserId = @telegramUserId OR c.recipientTelegramUserId = @telegramUserId)",
 			new { eventId, status = "Active", telegramUserId },
 			cancellationToken);
@@ -43,12 +43,12 @@ public class CosmosConversationRepository : IConversationRepository
 	public async Task AddMessageAsync(ConversationMessage message, CancellationToken cancellationToken = default)
 	{
 		message.CreatedAtUtc = DateTime.UtcNow;
-		await _executor.CreateItemAsync(_container, message.EventId, message, cancellationToken);
+		await _messageExecutor.CreateItemAsync(message, message.EventId, cancellationToken);
 	}
 
 	public async Task UpdateConversationAsync(Conversation conversation, CancellationToken cancellationToken = default)
 	{
 		conversation.UpdatedAtUtc = DateTime.UtcNow;
-		await _executor.UpsertItemAsync(_container, conversation.EventId, conversation, cancellationToken);
+		await _conversationExecutor.UpsertItemAsync(conversation, conversation.EventId, cancellationToken);
 	}
 }

@@ -1,27 +1,24 @@
 using Newtonsoft.Json;
-using SecretSanta.DAL.Cosmos;
 
-namespace SecretSanta.DAL.Entities
+namespace SecretSanta.DAL.Entities;
+
+public class Assignment
 {
-	[CosmosContainer("Assignments")]
-	public class Assignment
-	{
-		[JsonProperty("id")]
-		public string Id { get; set; } = Guid.NewGuid().ToString();
+	[JsonProperty("id")]
+	public string Id { get; set; } = Guid.NewGuid().ToString();
 
-		[JsonProperty("eventId")]
-		public string EventId { get; set; } = string.Empty;
+	[JsonProperty("eventId")]
+	public string EventId { get; set; } = string.Empty;
 
-		[JsonProperty("draftRunId")]
-		public string DraftRunId { get; set; } = string.Empty;
+	[JsonProperty("draftRunId")]
+	public string DraftRunId { get; set; } = string.Empty;
 
-		[JsonProperty("santaTelegramUserId")]
-		public long SantaTelegramUserId { get; set; }
+	[JsonProperty("santaTelegramUserId")]
+	public long SantaTelegramUserId { get; set; }
 
-		[JsonProperty("recipientTelegramUserId")]
-		public long RecipientTelegramUserId { get; set; }
+	[JsonProperty("recipientTelegramUserId")]
+	public long RecipientTelegramUserId { get; set; }
 
-		[JsonProperty("createdAtUtc")]
-		public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-	}
+	[JsonProperty("createdAtUtc")]
+	public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }

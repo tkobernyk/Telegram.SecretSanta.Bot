@@ -1,9 +1,7 @@
 using Newtonsoft.Json;
-using SecretSanta.DAL.Cosmos;
 
 namespace SecretSanta.DAL.Entities;
 
-[CosmosContainer("UserEventSessions")]
 public sealed class UserEventSession
 {
 	[JsonProperty("id")]

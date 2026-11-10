@@ -3,7 +3,6 @@ using SecretSanta.DAL.Cosmos;
 
 namespace SecretSanta.DAL.Entities;
 
-[CosmosContainer("Participants")]
 public class Participant
 {
 	[JsonProperty("id")]

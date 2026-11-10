@@ -3,15 +3,13 @@ using SecretSanta.DAL.Entities;
 
 namespace SecretSanta.DAL.Repositories;
 
-public sealed class CosmosUserEventSessionRepository(IExecutor executor) : IUserEventSessionRepository
+public sealed class CosmosUserEventSessionRepository(IDbExecutor<UserEventSession> executor) : IUserEventSessionRepository
 {
-	const string Container = "UserEventSessions";
-	readonly IExecutor _executor = executor;
+	readonly IDbExecutor<UserEventSession> _executor = executor;
 
 	public async Task<UserEventSession?> GetAsync(string telegramUserId, CancellationToken cancellationToken = default)
 	{
-		var sessions = await _executor.QueryAsync<UserEventSession>(Container,
-			"SELECT * FROM c WHERE c.telegramUserId = @telegramUserId",
+		var sessions = await _executor.QueryAsync("SELECT * FROM c WHERE c.telegramUserId = @telegramUserId",
 			new { telegramUserId },
 			cancellationToken);
 		return sessions.FirstOrDefault();
@@ -21,11 +19,11 @@ public sealed class CosmosUserEventSessionRepository(IExecutor executor) : IUser
 	{
 		session.Id = session.TelegramUserId;
 		session.UpdatedAtUtc = DateTime.UtcNow;
-		await _executor.UpsertItemAsync(Container, session.TelegramUserId, session, cancellationToken);
+		await _executor.UpsertItemAsync(session, session.TelegramUserId, cancellationToken);
 	}
 
 	public Task DeleteAsync(string telegramUserId, CancellationToken cancellationToken = default)
 	{
-		return _executor.DeleteItemAsync<UserEventSession>(Container, telegramUserId, telegramUserId, cancellationToken);
+		return _executor.DeleteItemAsync(telegramUserId, telegramUserId, cancellationToken);
 	}
 }

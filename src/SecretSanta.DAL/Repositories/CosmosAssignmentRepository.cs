@@ -5,21 +5,19 @@ namespace SecretSanta.DAL.Repositories;
 
 public class CosmosAssignmentRepository : IAssignmentRepository
 {
-	private readonly IExecutor _executor;
-	private readonly string _container = "Assignments";
+	readonly IDbExecutor<Assignment> _executor;
 
-	public CosmosAssignmentRepository(IExecutor executor)
+	public CosmosAssignmentRepository(IDbExecutor<Assignment> executor)
 	{
 		_executor = executor;
 	}
 
 	public Task CreateAssignmentsAsync(IEnumerable<Assignment> assignments, CancellationToken cancellationToken = default)
 	{
-		// batch create - naive implementation
 		var tasks = new List<Task>();
 		foreach (var a in assignments)
 		{
-			tasks.Add(_executor.CreateItemAsync(_container, a.EventId, a, cancellationToken));
+			tasks.Add(_executor.CreateItemAsync(a, a.EventId, cancellationToken));
 		}
 		return Task.WhenAll(tasks);
 	}
@@ -27,20 +25,20 @@ public class CosmosAssignmentRepository : IAssignmentRepository
 	public async Task<IEnumerable<Assignment>> GetAssignmentsByEventAsync(string eventId, CancellationToken cancellationToken = default)
 	{
 		var q = "SELECT * FROM c WHERE c.eventId = @eventId";
-		return await _executor.QueryAsync<Assignment>(_container, q, new { eventId }, cancellationToken);
+		return await _executor.QueryAsync(q, new { eventId }, cancellationToken);
 	}
 
 	public async Task<Assignment?> GetAssignmentForRecipientAsync(string eventId, long recipientTelegramId, CancellationToken cancellationToken = default)
 	{
 		var q = "SELECT * FROM c WHERE c.eventId = @eventId AND c.recipientTelegramUserId = @recipient";
-		var res = await _executor.QueryAsync<Assignment>(_container, q, new { eventId, recipient = recipientTelegramId }, cancellationToken);
+		var res = await _executor.QueryAsync(q, new { eventId, recipient = recipientTelegramId }, cancellationToken);
 		return res.FirstOrDefault();
 	}
 
 	public async Task<Assignment?> GetAssignmentForSantaAsync(string eventId, long santaTelegramId, CancellationToken cancellationToken = default)
 	{
 		var q = "SELECT * FROM c WHERE c.eventId = @eventId AND c.santaTelegramUserId = @santa";
-		var res = await _executor.QueryAsync<Assignment>(_container, q, new { eventId, santa = santaTelegramId }, cancellationToken);
+		var res = await _executor.QueryAsync(q, new { eventId, santa = santaTelegramId }, cancellationToken);
 		return res.FirstOrDefault();
 	}
 }

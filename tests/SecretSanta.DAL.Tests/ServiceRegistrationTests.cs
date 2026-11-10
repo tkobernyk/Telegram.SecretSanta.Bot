@@ -19,7 +19,9 @@ namespace SecretSanta.DAL.Tests
 			ServiceCollectionExtensions.AddSecretSantaDal(services, config);
 
 			// Assert - check descriptors exist
-			Assert.IsTrue(services.Any(d => d.ServiceType == typeof(CosmosClientFactory)));
+			Assert.IsTrue(services.Any(d => d.ServiceType == typeof(CosmosClientProvider)));
+			Assert.IsTrue(services.Any(d => d.ServiceType == typeof(CosmosClientProvider)));
+			Assert.IsTrue(services.Any(d => d.ServiceType.IsGenericTypeDefinition && d.ServiceType == typeof(ICosmosClientFactory<>)));
 			Assert.IsTrue(services.Any(d => d.ServiceType == typeof(IParticipantRepository)));
 			Assert.IsTrue(services.Any(d => d.ImplementationType == typeof(CosmosParticipantRepository) || d.ImplementationFactory != null));
 		}

@@ -11,11 +11,10 @@ public static class ServiceCollectionExtensions
 	public static IServiceCollection AddSecretSantaDal(this IServiceCollection services, IConfiguration configuration)
 	{
 		// Register concrete types so tests and consumers can resolve either the concrete implementation or the abstraction.
-		services.AddSingleton<CosmosClientFactory>();
-		services.AddSingleton<ICosmosClientFactory>(sp => sp.GetRequiredService<CosmosClientFactory>());
+		services.AddSingleton<CosmosClientProvider>();
+		services.AddSingleton(typeof(ICosmosClientFactory<>), typeof(CosmosClientFactory<>));
 
-		services.AddSingleton<CosmosExecutor>();
-		services.AddSingleton<IExecutor>(sp => sp.GetRequiredService<CosmosExecutor>());
+		services.AddSingleton(typeof(IDbExecutor<>), typeof(CosmosExecutor<>));
 
 		services.AddSingleton<CosmosParticipantRepository>();
 		services.AddSingleton<IParticipantRepository>(sp => sp.GetRequiredService<CosmosParticipantRepository>());
@@ -35,9 +34,6 @@ public static class ServiceCollectionExtensions
 
 		services.AddSingleton<CosmosUserEventSessionRepository>();
 		services.AddSingleton<IUserEventSessionRepository>(sp => sp.GetRequiredService<CosmosUserEventSessionRepository>());
-
-		services.AddSingleton<CosmosParticipantRepository>();
-		services.AddSingleton<IParticipantRepository>(sp => sp.GetRequiredService<CosmosParticipantRepository>());
 
 		return services;
 	}
