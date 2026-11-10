@@ -1,7 +1,10 @@
 using Newtonsoft.Json;
 
+using SecretSanta.DAL.Cosmos;
+
 namespace SecretSanta.DAL.Entities
 {
+	[CosmosContainer("Events")]
 	public class Event
 	{
 		[JsonProperty("id")]

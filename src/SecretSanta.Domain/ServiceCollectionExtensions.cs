@@ -11,7 +11,7 @@ public static class ServiceCollectionExtensions
 	public static IServiceCollection AddSecretSantaDomain(this IServiceCollection services, IConfiguration configuration)
 	{
 		services.AddSecretSantaInfrastructure(configuration);
-		services.AddScoped<IParticipantService, ParticipantService>();
+		services.AddSingleton<IParticipantService, ParticipantService>();
 		services.AddSingleton<IPendingUserInputService, PendingUserInputService>();
 		services.AddSingleton<IConversationOrchestrator, ConversationOrchestrator>();
 		services.AddSingleton<IWizardRegistry, WizardRegistry>();

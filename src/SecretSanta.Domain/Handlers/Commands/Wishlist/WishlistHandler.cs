@@ -1,6 +1,7 @@
 using MediatR;
 using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Models;
+using SecretSanta.Domain.Helpers;
 using System.Net;
 
 namespace SecretSanta.Domain.Handlers.Commands.Wishlist;
@@ -63,7 +64,12 @@ public class WishlistHandler(IParticipantService _participantService, IPendingUs
 			participant.OtherPreferences = state.Data.GetValueOrDefault("OtherPreferences", participant.OtherPreferences ?? string.Empty);
 
 			await _participantService.UpdateAsync(participant, cancellationToken);
-			return new WishlistResponse { StatusCode = HttpStatusCode.OK, ResponseMessage = "Усі ваші побажання збережені." };
+			return new WishlistResponse
+			{
+				StatusCode = HttpStatusCode.OK,
+				ResponseMessage = "Усі ваші побажання збережені.",
+				ReplyMarkup = ProfileWishlistKeyboard.Create()
+			};
 		}
 
 		return new WishlistResponse { StatusCode = HttpStatusCode.OK };

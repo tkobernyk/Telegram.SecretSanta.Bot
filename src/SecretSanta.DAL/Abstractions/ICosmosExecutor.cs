@@ -10,4 +10,5 @@ public interface IExecutor
 	Task<IEnumerable<T>> QueryAsync<T>(string containerName, string query, object parameters, CancellationToken cancellationToken);
 	Task<T> CreateItemAsync<T>(string containerName, string eventId, T item, CancellationToken cancellationToken);
 	Task<T> UpsertItemAsync<T>(string containerName, string eventId, T item, CancellationToken cancellationToken);
+	Task DeleteItemAsync<T>(string containerName, string id, string partitionKey, CancellationToken cancellationToken);
 }

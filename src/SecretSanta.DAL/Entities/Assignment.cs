@@ -1,7 +1,9 @@
 using Newtonsoft.Json;
+using SecretSanta.DAL.Cosmos;
 
 namespace SecretSanta.DAL.Entities
 {
+	[CosmosContainer("Assignments")]
 	public class Assignment
 	{
 		[JsonProperty("id")]

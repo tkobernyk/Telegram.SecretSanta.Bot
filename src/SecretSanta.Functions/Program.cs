@@ -16,8 +16,8 @@ public class AppSettings
 	public string? Telegram__OrganizerTelegramId { get; set; }
 	public string? Cosmos__Endpoint { get; set; }
 	public string? Cosmos__DatabaseName { get; set; }
-	public string? Gemini__ApiKey { get; set; }
-	public string? Gemini__Model { get; set; }
+	public string? Groq__ApiKey { get; set; }
+	public string? Groq__Model { get; set; }
 }
 
 internal static class Program
@@ -46,11 +46,7 @@ internal static class Program
 				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__BotToken"))) missing.Add("Telegram__BotToken");
 				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__WebhookSecret"))) missing.Add("Telegram__WebhookSecret");
 				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__OrganizerTelegramId"))) missing.Add("Telegram__OrganizerTelegramId");
-
-				// Debug output to help when running under debugger / local.settings.json
-				Console.Error.WriteLine($"Config Telegram__BotToken='{GetCfg("Telegram__BotToken") ?? "<null>"}' Values:Telegram__BotToken='{cfg["Values:Telegram__BotToken"] ?? "<null>"}'");
-				Console.Error.WriteLine($"Config Telegram__WebhookSecret='{GetCfg("Telegram__WebhookSecret") ?? "<null>"}' Values:Telegram__WebhookSecret='{cfg["Values:Telegram__WebhookSecret"] ?? "<null>"}'");
-				Console.Error.WriteLine($"Config Telegram__OrganizerTelegramId='{GetCfg("Telegram__OrganizerTelegramId") ?? "<null>"}' Values:Telegram__OrganizerTelegramId='{cfg["Values:Telegram__OrganizerTelegramId"] ?? "<null>"}'");
+				if (string.IsNullOrWhiteSpace(GetCfg("Groq__ApiKey")) && string.IsNullOrWhiteSpace(GetCfg("Groq:ApiKey"))) missing.Add("Groq__ApiKey");
 
 				if (missing.Count > 0)
 				{

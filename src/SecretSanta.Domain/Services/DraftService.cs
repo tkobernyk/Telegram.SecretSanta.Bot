@@ -1,6 +1,7 @@
 using SecretSanta.Domain.Abstractions;
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
+using SecretSanta.Domain.Enums;
 
 namespace SecretSanta.Domain.Services;
 
@@ -22,7 +23,7 @@ public class DraftService : IDraftService
 		var ev = await _eventRepo.GetByEventIdAsync(eventId, cancellationToken);
 		if (ev != null)
 		{
-			ev.State = "Draft";
+			ev.State = EventWorkflowState.Draft;
 			ev.UpdatedAtUtc = DateTime.UtcNow;
 			await _eventRepo.UpdateAsync(ev, cancellationToken);
 		}

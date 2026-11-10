@@ -2,8 +2,9 @@ using MediatR;
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
 using SecretSanta.Domain.Abstractions;
+using SecretSanta.Domain.Enums;
 using SecretSanta.Domain.Models;
-using SecretSanta.Infrastructure.Telegram;
+using SecretSanta.Domain.Helpers;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace SecretSanta.Domain.Handlers.Commands.Start;
@@ -41,116 +42,26 @@ public class StartHandler(IParticipantService _participantService, IEventReposit
 				ReplyMarkup = BuildStartInlineKeyboard()
 			};
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 		}
 
 		if (string.Equals(text, "start:create", StringComparison.OrdinalIgnoreCase))
 		{
 			var createHandler = new StartCreateHandler(_participantService, _eventRepository, _pending);
-			return await createHandler.Handle(new StartCreateRequest { EventId = request.EventId, TelegramUserId = telegramUserId, DisplayName = request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? ("user-" + telegramUserId) }, cancellationToken);
+			return await createHandler.Handle(new StartCreateRequest { EventId = request.EventId, TelegramUserId = telegramUserId, DisplayName = request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? ("user-" + telegramUserId), Message = request.Message }, cancellationToken);
 		}
 
 		if (string.Equals(text, "start:join", StringComparison.OrdinalIgnoreCase))
 		{
 			var joinHandler = new StartJoinHandler(_participantService, _eventRepository, _pending);
-			return await joinHandler.Handle(new StartJoinRequest { EventId = request.EventId, TelegramUserId = telegramUserId, JoinCode = string.Empty, DisplayName = request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? ("user-" + telegramUserId) }, cancellationToken);
+			return await joinHandler.Handle(new StartJoinRequest { EventId = request.EventId, TelegramUserId = telegramUserId, JoinCode = string.Empty, DisplayName = request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? ("user-" + telegramUserId), Message = request.Message }, cancellationToken);
 		}
 
-		var eventId = request.EventId;
-		var existing = await _participantService.GetByTelegramUserIdAsync(eventId, telegramUserId, cancellationToken);
-		if (existing != null)
+		return new StartResponse
 		{
-			return new StartResponse
-			{
-				StatusCode = System.Net.HttpStatusCode.OK,
-				Payload = default,
-				ResponseMessage = $"Ви вже зареєстровані, {existing.DisplayName}. Використайте /profile щоб переглянути анкету."
-			};
-		}
-
-		return await RegisterParticipantAsync(eventId, telegramUserId, request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? ("user-" + telegramUserId), cancellationToken);
+			StatusCode = System.Net.HttpStatusCode.OK,
+			ResponseMessage = "Виберіть «Створити» або «Приєднатись до події», щоб продовжити реєстрацію.",
+			ReplyMarkup = BuildStartInlineKeyboard()
+		};
 	}
 
 	private async Task<StartResponse> HandleStartWizardAsync(StartRequest request, ConversationState state, string telegramUserId, string text, CancellationToken cancellationToken)
@@ -162,14 +73,14 @@ public class StartHandler(IParticipantService _participantService, IEventReposit
 			{
 				var displayName = request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? ("user-" + telegramUserId);
 				var createHandler = new StartCreateHandler(_participantService, _eventRepository, _pending);
-				return await createHandler.Handle(new StartCreateRequest { EventId = request.EventId, TelegramUserId = telegramUserId, DisplayName = displayName }, cancellationToken);
+				return await createHandler.Handle(new StartCreateRequest { EventId = request.EventId, TelegramUserId = telegramUserId, DisplayName = displayName, Message = request.Message }, cancellationToken);
 			}
 
 			if (choice.Equals("join", StringComparison.OrdinalIgnoreCase) || choice.Equals("existing", StringComparison.OrdinalIgnoreCase) || choice.Equals("start:join", StringComparison.OrdinalIgnoreCase))
 			{
 				var displayName = request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? ("user-" + telegramUserId);
 				var joinHandler = new StartJoinHandler(_participantService, _eventRepository, _pending);
-				return await joinHandler.Handle(new StartJoinRequest { EventId = request.EventId, TelegramUserId = telegramUserId, JoinCode = string.Empty, DisplayName = displayName }, cancellationToken);
+				return await joinHandler.Handle(new StartJoinRequest { EventId = request.EventId, TelegramUserId = telegramUserId, JoinCode = string.Empty, DisplayName = displayName, Message = request.Message }, cancellationToken);
 			}
 
 			return new StartResponse
@@ -182,32 +93,20 @@ public class StartHandler(IParticipantService _participantService, IEventReposit
 
 		if (state.StepIndex == 1)
 		{
-			_pending.EndConversation(telegramUserId);
 			var joinCode = text.Trim();
 			if (string.IsNullOrWhiteSpace(joinCode))
 			{
 				return new StartResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Ключ не може бути порожнім." };
 			}
 
-			var eventEntity = await _eventRepository.GetByJoinCodeAsync(joinCode, cancellationToken);
-			if (eventEntity == null)
+			var joinHandler = new StartJoinHandler(_participantService, _eventRepository, _pending);
+			return await joinHandler.Handle(new StartJoinRequest
 			{
-				return new StartResponse { StatusCode = System.Net.HttpStatusCode.NotFound, ResponseMessage = "Не знайдено Secret Santa за таким ключем. Перевірте код і спробуйте ще раз." };
-			}
-
-			var participant = await _participantService.GetByTelegramUserIdAsync(eventEntity.EventId, telegramUserId, cancellationToken);
-			if (participant != null)
-			{
-				return new StartResponse { StatusCode = System.Net.HttpStatusCode.OK, ResponseMessage = "Ви вже приєднані до цього Secret Santa." };
-			}
-
-			var created = await RegisterParticipantAsync(eventEntity.EventId, telegramUserId, requestMessageDisplayName(telegramUserId), cancellationToken);
-			return new StartResponse
-			{
-				StatusCode = System.Net.HttpStatusCode.Created,
-				Payload = new { eventId = eventEntity.EventId, joinCode = eventEntity.JoinCode },
-				ResponseMessage = $"Ви успішно приєдналися до Secret Santa. Ключ: {eventEntity.JoinCode}\nТепер заповніть ваш профіль за допомогою /profile або /wishlist."
-			};
+				EventId = request.EventId,
+				TelegramUserId = telegramUserId,
+				JoinCode = joinCode,
+				DisplayName = request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? requestMessageDisplayName(telegramUserId)
+			}, cancellationToken);
 		}
 
 		_pending.EndConversation(telegramUserId);
@@ -222,7 +121,8 @@ public class StartHandler(IParticipantService _participantService, IEventReposit
 		{
 			StatusCode = System.Net.HttpStatusCode.Created,
 			Payload = new { eventId = eventEntity.EventId, joinCode = eventEntity.JoinCode },
-			ResponseMessage = $"Ви створили новий Secret Santa. Ключ доступу: {eventEntity.JoinCode}\nПоділіться ним із друзями.\nПісля цього заповніть ваш профіль за допомогою /profile або /wishlist."
+			ResponseMessage = $"Ви створили новий Secret Santa. Ключ доступу: {eventEntity.JoinCode}\nПоділіться ним із друзями.\nЗаповніть ваш профіль або побажання кнопками нижче.",
+			ReplyMarkup = ProfileWishlistKeyboard.Create()
 		};
 	}
 
@@ -256,7 +156,7 @@ public class StartHandler(IParticipantService _participantService, IEventReposit
 			JoinCode = joinCode,
 			OrganizerTelegramId = long.Parse(telegramUserId),
 			CreatedByTelegramId = long.Parse(telegramUserId),
-			State = "Registration",
+			State = EventWorkflowState.Registration,
 			CreatedAtUtc = DateTime.UtcNow,
 			UpdatedAtUtc = DateTime.UtcNow
 		};
@@ -289,7 +189,8 @@ public class StartHandler(IParticipantService _participantService, IEventReposit
 			{
 				StatusCode = System.Net.HttpStatusCode.OK,
 				Payload = default,
-				ResponseMessage = $"Ви вже зареєстровані, {existing.DisplayName}. Використайте /profile щоб переглянути анкету."
+				ResponseMessage = $"Ви вже зареєстровані, {existing.DisplayName}. Перегляньте профіль або оновіть побажання кнопками нижче.",
+				ReplyMarkup = ProfileWishlistKeyboard.Create()
 			};
 		}
 
@@ -314,18 +215,18 @@ public class StartHandler(IParticipantService _participantService, IEventReposit
 		{
 			StatusCode = System.Net.HttpStatusCode.Created,
 			Payload = default,
-			ResponseMessage = $"Дякую, {participant.DisplayName}! Ви успішно зареєстровані. Використайте /profile щоб переглянути анкету."
+			ResponseMessage = $"Дякую, {participant.DisplayName}! Ви успішно зареєстровані. Перегляньте профіль або заповніть побажання кнопками нижче.",
+			ReplyMarkup = ProfileWishlistKeyboard.Create()
 		};
 	}
 
 	private static InlineKeyboardMarkup BuildStartInlineKeyboard()
 	{
 		return new InlineKeyboardMarkup(
-			new[]
-			{
-				new[] { InlineKeyboardButton.WithCallbackData("Створити Secret Santa", "start:create") },
-				new[] { InlineKeyboardButton.WithCallbackData("Приєднатись до івенту", "start:join") }
-			});
+			[
+				[InlineKeyboardButton.WithCallbackData("Створити нову подію", "start:create")],
+				[InlineKeyboardButton.WithCallbackData("Приєднатись до події за кодом", "start:join")]
+			]);
 	}
 
 

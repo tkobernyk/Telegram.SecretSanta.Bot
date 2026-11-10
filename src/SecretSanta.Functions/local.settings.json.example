@@ -4,15 +4,16 @@
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
 
-    "Telegram__BotToken": "8970487203:AAFZR1cX3G7ZtokWoUJLIGZZQv6F54fkrmc",
-    "Telegram__WebhookSecret": "a7f3c91e5b824d60f1a9e7382c6d04b5e8f2179a43c06d51b9e4f6827a35d0c8",
-    "Telegram__OrganizerTelegramId": "8970487203",
+    "Telegram__BotToken": "<telegram-bot-token>",
+    "Telegram__WebhookSecret": "<telegram-webhook-secret>",
+    "Telegram__OrganizerTelegramId": "<organizer-telegram-id>",
 
     "Cosmos__Endpoint": "<cosmos-endpoint>",
     "Cosmos__DatabaseName": "SecretSantaDb",
 
-    "Gemini__ApiKey": "<gemini-api-key>",
-    "Gemini__Model": "<gemini-model>",
+    "Groq__ApiKey": "<groq-api-key>",
+    "Groq__Model": "llama-3.3-70b-versatile",
+    "Groq__BaseUrl": "https://api.groq.com/openai/v1/",
 
     "App__EventId": "<event-id>",
     "App__MaxMessageLength": "2000",

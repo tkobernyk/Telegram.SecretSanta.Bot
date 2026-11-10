@@ -6,12 +6,18 @@ namespace SecretSanta.DAL.Cosmos;
 
 public class CosmosExecutor(ICosmosClientFactory factory, ILogger<CosmosExecutor> logger) : IExecutor
 {
+	readonly ICosmosClientFactory _factory = factory;
 	readonly Container _container = factory.GetContainer();
 	readonly ILogger<CosmosExecutor> _logger = logger;
 
+	private Container ResolveContainer(string? containerName = null)
+	{
+		return string.IsNullOrWhiteSpace(containerName) ? _container : _factory.GetContainer(containerName);
+	}
+
 	public async Task<T> GetItemByIdAsync<T>(QueryDefinition query, string eventId, CancellationToken cancellationToken)
 	{
-		using var it = _container.GetItemQueryIterator<T>(query,
+		using var it = ResolveContainer().GetItemQueryIterator<T>(query,
 			requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(eventId), MaxItemCount = 1 });
 
 		if (it.HasMoreResults)
@@ -27,7 +33,7 @@ public class CosmosExecutor(ICosmosClientFactory factory, ILogger<CosmosExecutor
 	{
 		try
 		{
-			var response = await _container.CreateItemAsync(item, new PartitionKey(eventId), cancellationToken: cancellationToken);
+			var response = await ResolveContainer().CreateItemAsync(item, new PartitionKey(eventId), cancellationToken: cancellationToken);
 			return response.Resource;
 		}
 		catch (CosmosException ex)
@@ -50,7 +56,7 @@ public class CosmosExecutor(ICosmosClientFactory factory, ILogger<CosmosExecutor
 	{
 		try
 		{
-			var response = await _container.UpsertItemAsync(item, new PartitionKey(eventId), cancellationToken: cancellationToken);
+			var response = await ResolveContainer().UpsertItemAsync(item, new PartitionKey(eventId), cancellationToken: cancellationToken);
 			return response.Resource;
 		}
 		catch (CosmosException ex)
@@ -83,7 +89,7 @@ public class CosmosExecutor(ICosmosClientFactory factory, ILogger<CosmosExecutor
 			}
 		}
 
-		using var iterator = _container.GetItemQueryIterator<T>(sql);
+		using var iterator = ResolveContainer(containerName).GetItemQueryIterator<T>(sql);
 		var results = new List<T>();
 		while (iterator.HasMoreResults)
 		{
@@ -95,11 +101,62 @@ public class CosmosExecutor(ICosmosClientFactory factory, ILogger<CosmosExecutor
 
 	public Task<T> CreateItemAsync<T>(string containerName, string eventId, T item, CancellationToken cancellationToken)
 	{
-		return CreateItemAsync(item, eventId, cancellationToken);
+		try
+		{
+			var container = ResolveContainer(containerName);
+			return CreateItemInContainerAsync(container, item, eventId, cancellationToken);
+		}
+		catch (CosmosException ex)
+		{
+			_logger.LogError(
+				ex,
+				"Cosmos DB failed. Status={StatusCode}, " +
+				"SubStatus={SubStatusCode}, Message={Message}, " +
+				"ActivityId={ActivityId}",
+				(int)ex.StatusCode,
+				ex.SubStatusCode,
+				ex.Message,
+				ex.ActivityId);
+			throw;
+		}
 	}
 
 	public Task<T> UpsertItemAsync<T>(string containerName, string eventId, T item, CancellationToken cancellationToken)
 	{
-		return UpsertItemAsync(item, eventId, cancellationToken);
+		try
+		{
+			var container = ResolveContainer(containerName);
+			return UpsertItemInContainerAsync(container, item, eventId, cancellationToken);
+		}
+		catch (CosmosException ex)
+		{
+			_logger.LogError(
+				ex,
+				"Cosmos DB failed. Status={StatusCode}, " +
+				"SubStatus={SubStatusCode}, Message={Message}, " +
+				"ActivityId={ActivityId}",
+				(int)ex.StatusCode,
+				ex.SubStatusCode,
+				ex.Message,
+				ex.ActivityId);
+			throw;
+		}
+	}
+
+	private async Task<T> CreateItemInContainerAsync<T>(Container container, T item, string eventId, CancellationToken cancellationToken)
+	{
+		var response = await container.CreateItemAsync(item, new PartitionKey(eventId), cancellationToken: cancellationToken);
+		return response.Resource;
+	}
+
+	private async Task<T> UpsertItemInContainerAsync<T>(Container container, T item, string eventId, CancellationToken cancellationToken)
+	{
+		var response = await container.UpsertItemAsync(item, new PartitionKey(eventId), cancellationToken: cancellationToken);
+		return response.Resource;
+	}
+
+	public async Task DeleteItemAsync<T>(string containerName, string id, string partitionKey, CancellationToken cancellationToken)
+	{
+		await ResolveContainer(containerName).DeleteItemAsync<T>(id, new PartitionKey(partitionKey), cancellationToken: cancellationToken);
 	}
 }

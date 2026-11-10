@@ -1,4 +1,5 @@
 using MediatR;
+using SecretSanta.Domain.Enums;
 using SecretSanta.Domain.Handlers.Common;
 using SecretSanta.DAL.Abstractions;
 
@@ -32,7 +33,7 @@ public class ConfirmBudgetHandler : IRequestHandler<ConfirmBudgetRequest, Comman
 		{
 			// everyone confirmed - start draft automatically
 			// NOTE: orchestration to start draft is handled by separate command/handler; here just set event flag and return instruction
-			ev.State = "Draft";
+			ev.State = EventWorkflowState.Draft;
 			ev.UpdatedAtUtc = System.DateTime.UtcNow;
 			await _eventRepo.UpdateAsync(ev, cancellationToken);
 

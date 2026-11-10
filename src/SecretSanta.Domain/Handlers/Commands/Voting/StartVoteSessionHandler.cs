@@ -1,5 +1,6 @@
 using MediatR;
 using SecretSanta.Domain.Abstractions;
+using SecretSanta.Domain.Enums;
 using SecretSanta.Domain.Handlers.Common;
 using SecretSanta.Infrastructure.Telegram;
 
@@ -28,12 +29,15 @@ public class StartVoteSessionHandler : IRequestHandler<StartVoteSessionRequest, 
 		if (ev.OrganizerTelegramId != request.InitiatorTelegramId) return new CommandResponse { StatusCode = System.Net.HttpStatusCode.Forbidden, ResponseMessage = "Only organizer may start voting." };
 		var registered = (await _participantRepo.GetAllByEventAsync(request.EventId, cancellationToken)).Count();
 		if (registered < 2) return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Для голосування потрібно щонайменше два учасники." };
-		if (ev.State != "Registration" && ev.State != "BudgetDiscussion") return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Голосування можна запустити лише після реєстрації або обговорення бюджету." };
+		if (string.Equals(ev.State, EventWorkflowState.Voting, StringComparison.OrdinalIgnoreCase))
+			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.Conflict, ResponseMessage = "Голосування за бюджет уже триває." };
+		if (ev.State is EventWorkflowState.Draft or EventWorkflowState.Preparing or EventWorkflowState.AwaitingDelivery or EventWorkflowState.Done or EventWorkflowState.Completed or EventWorkflowState.Cancelled)
+			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Для цієї події голосування за бюджет уже недоступне." };
 
 		request.Session.EventId = request.EventId;
 		await _voteService.CreateVoteSessionAsync(request.EventId, request.Session, cancellationToken);
 		ev.CurrentVoteSessionId = request.Session.Id;
-		ev.State = "Voting";
+		ev.State = EventWorkflowState.Voting;
 		await _eventRepo.UpdateAsync(ev, cancellationToken);
 		var keyboard = new Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup(new[]
 		{

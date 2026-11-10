@@ -21,4 +21,12 @@ public class TelegramSender(TelegramClientFactory factory) : ITelegramSender
 			}
 		}
 	}
+
+	public async Task AnswerCallbackQueryAsync(string callbackQueryId, string? text = null)
+	{
+		if (!string.IsNullOrWhiteSpace(callbackQueryId))
+		{
+			await _factory.Client.AnswerCallbackQuery(callbackQueryId, text: text);
+	}
+	}
 }

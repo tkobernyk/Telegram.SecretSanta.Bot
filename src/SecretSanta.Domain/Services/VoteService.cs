@@ -1,4 +1,5 @@
 using SecretSanta.Domain.Abstractions;
+using SecretSanta.Domain.Enums;
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
 
@@ -45,7 +46,7 @@ public class VoteService : IVoteService
 		if (ev != null)
 		{
 			ev.CurrentVoteSessionId = session.Id;
-			ev.State = "Voting";
+			ev.State = EventWorkflowState.Voting;
 			ev.UpdatedAtUtc = DateTime.UtcNow;
 			await _eventRepo.UpdateAsync(ev, cancellationToken);
 		}
@@ -118,7 +119,7 @@ public class VoteService : IVoteService
 		{
 			if (hasConsensus)
 			{
-				ev.State = "Draft";
+				ev.State = EventWorkflowState.Draft;
 				ev.BudgetConfirmed = selectedBudget;
 				ev.UpdatedAtUtc = DateTime.UtcNow;
 				await _eventRepo.UpdateAsync(ev, cancellationToken);
@@ -132,7 +133,7 @@ public class VoteService : IVoteService
 				};
 			}
 
-			ev.State = "BudgetDiscussion";
+			ev.State = EventWorkflowState.BudgetDiscussion;
 			ev.BudgetDiscussionCount += 1;
 			ev.UpdatedAtUtc = DateTime.UtcNow;
 			await _eventRepo.UpdateAsync(ev, cancellationToken);

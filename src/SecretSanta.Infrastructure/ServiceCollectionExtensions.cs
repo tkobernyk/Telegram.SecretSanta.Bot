@@ -13,10 +13,14 @@ namespace SecretSanta.Infrastructure
 			services.AddSingleton<TelegramClientFactory>();
 			services.AddSingleton<ITelegramSender, TelegramSender>();
 
-			// AI Gemini client
-			var baseUrl = configuration["Gemini:BaseUrl"] ?? "https://generativelanguage.googleapis.com/";
-			services.AddHttpClient("gemini", c => c.BaseAddress = new Uri(baseUrl));
-			services.AddSingleton<IGeminiService, GeminiService>();
+			// Groq AI client
+			var baseUrl = configuration["Groq:BaseUrl"] ?? configuration["Values:Groq__BaseUrl"] ?? "https://api.groq.com/openai/v1/";
+			if (!baseUrl.EndsWith('/'))
+			{
+				baseUrl += "/";
+			}
+			services.AddHttpClient("groq", c => c.BaseAddress = new Uri(baseUrl));
+			services.AddSingleton<ITextGenerationService, GroqService>();
 
 			services.AddSecretSantaDal(configuration);
 

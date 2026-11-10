@@ -2,10 +2,11 @@ using MediatR;
 using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Handlers.Common;
 using SecretSanta.Domain.Enums;
+using SecretSanta.DAL.Abstractions;
 
 namespace SecretSanta.Domain.Handlers.Commands.Conversation;
 
-public class StartConversationHandler(IConversationOrchestrator _orchestrator, IEventService _eventService, IAssignmentService _assignmentService) : IRequestHandler<StartConversationRequest, CommandResponse>
+public class StartConversationHandler(IConversationOrchestrator _orchestrator, IEventService _eventService, IAssignmentRepository _assignmentRepository) : IRequestHandler<StartConversationRequest, CommandResponse>
 {
 	public async Task<CommandResponse> Handle(StartConversationRequest request, CancellationToken cancellationToken)
 	{
@@ -26,7 +27,8 @@ public class StartConversationHandler(IConversationOrchestrator _orchestrator, I
 			case "Santa":
 			{
 				// user wants to message their Santa; find who the Santa is for this initiator
-				santaId = await _assignmentService.GetSantaForRecipientAsync(request.EventId, initiatorId, cancellationToken);
+				var assignment = await _assignmentRepository.GetAssignmentForRecipientAsync(request.EventId, initiatorId, cancellationToken);
+				santaId = assignment?.SantaTelegramUserId;
 				if (santaId == null)
 				{
 					return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Секретний Санта не знайдений для вас." };
@@ -37,7 +39,8 @@ public class StartConversationHandler(IConversationOrchestrator _orchestrator, I
 			case "Recipient":
 			{
 				// user wants to message their recipient; find who their recipient is
-				recipientId = await _assignmentService.GetRecipientForSantaAsync(request.EventId, initiatorId, cancellationToken);
+				var assignment = await _assignmentRepository.GetAssignmentForSantaAsync(request.EventId, initiatorId, cancellationToken);
+				recipientId = assignment?.RecipientTelegramUserId;
 				if (recipientId == null)
 				{
 					return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Отримувач не знайдений для вас." };
@@ -50,7 +53,7 @@ public class StartConversationHandler(IConversationOrchestrator _orchestrator, I
 		}
 
 		// Do not reveal santa identity in any response. Start orchestration which will route messages anonymously via orchestrator.
-		await _orchestrator.StartConversationAsync(request.EventId, santaId?.ToString() ?? string.Empty, recipientId?.ToString() ?? string.Empty, cancellationToken);
-		return new CommandResponse { StatusCode = System.Net.HttpStatusCode.OK, ResponseMessage = "Анонімний діалог розпочато. Ви можете писати повідомлення, які буде переслано анонімно." };
+		await _orchestrator.StartConversationAsync(request.EventId, santaId?.ToString() ?? string.Empty, recipientId?.ToString() ?? string.Empty, request.InitiatorTelegramUserId, cancellationToken);
+		return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NoContent };
 	}
 }

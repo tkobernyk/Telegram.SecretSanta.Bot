@@ -2,6 +2,7 @@ using MediatR;
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
 using SecretSanta.Domain.Abstractions;
+using SecretSanta.Domain.Enums;
 using SecretSanta.Domain.Handlers.Common;
 using SecretSanta.Domain.Handlers.Commands.Draft;
 using SecretSanta.Infrastructure.Telegram;
@@ -36,8 +37,10 @@ public sealed class SubmitBudgetVoteHandler : IRequestHandler<SubmitBudgetVoteRe
 
 		var ev = await _eventRepository.GetByEventIdAsync(request.EventId, cancellationToken);
 		if (ev == null) return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NotFound, ResponseMessage = "Подію не знайдено." };
+		if (!string.Equals(ev.State, EventWorkflowState.Voting, StringComparison.OrdinalIgnoreCase))
+			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NoContent };
 		if (string.IsNullOrWhiteSpace(ev.CurrentVoteSessionId))
-			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Зараз голосування не відкрите." };
+			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NoContent };
 
 		var participant = await _participantRepository.GetByTelegramUserIdAsync(request.EventId, request.TelegramUserId.ToString(), cancellationToken);
 		if (participant == null) return new CommandResponse { StatusCode = System.Net.HttpStatusCode.Forbidden, ResponseMessage = "До голосування можуть долучатися лише учасники події." };
@@ -58,7 +61,7 @@ public sealed class SubmitBudgetVoteHandler : IRequestHandler<SubmitBudgetVoteRe
 		await _draftService.StartDraftAsync(request.EventId, ev.OrganizerTelegramId, cancellationToken);
 		var assignments = await _assignmentRepository.GetAssignmentsByEventAsync(request.EventId, cancellationToken);
 		var participants = (await _participantRepository.GetAllByEventAsync(request.EventId, cancellationToken)).ToDictionary(p => p.TelegramUserId);
-		foreach (var assignment in assignments)
+		foreach (var assignment in assignments.GroupBy(a => a.SantaTelegramUserId).Select(group => group.First()))
 		{
 			if (!participants.TryGetValue(assignment.SantaTelegramUserId.ToString(), out var santa) || !participants.TryGetValue(assignment.RecipientTelegramUserId.ToString(), out var recipient))
 				continue;
@@ -67,24 +70,22 @@ public sealed class SubmitBudgetVoteHandler : IRequestHandler<SubmitBudgetVoteRe
 			{
 				new[] { InlineKeyboardButton.WithCallbackData("Уточнити в отримувача", "chat:recipient") },
 				new[] { InlineKeyboardButton.WithCallbackData("Написати Secret Santa", "chat:santa") },
-				new[] { InlineKeyboardButton.WithCallbackData("Подарунок вже готовий", "gift:ready") },
-				new[] { InlineKeyboardButton.WithCallbackData("Ще хочу дещо уточнити", "gift:progress") }
+				new[] { InlineKeyboardButton.WithCallbackData("Подарунок вже готовий", "gift:ready") }
 			});
 
 			var message = $"Бюджет узгоджено: {votes.SelectedBudget} грн.\nВаш отримувач: {recipient.DisplayName}\nВішліст: {recipient.WishlistText ?? "Не заповнений"}\n\nВикористайте кнопки нижче для анонімного спілкування та оновлення статусу подарунка.";
 			await _telegramSender.SendMessageAsync(santa.TelegramUserId, message, keyboard);
-			await _telegramSender.SendMessageAsync(recipient.TelegramUserId, "Жеребкування завершено. Ви можете анонімно уточнити побажання у свого Санти або позначити статус подарунка.", keyboard);
 		}
 
 		var current = await _eventRepository.GetByEventIdAsync(request.EventId, cancellationToken);
 		if (current != null)
 		{
-			current.State = "Draft";
+			current.State = EventWorkflowState.Draft;
 			current.BudgetConfirmed = votes.SelectedBudget;
 			current.UpdatedAtUtc = DateTime.UtcNow;
 			await _eventRepository.UpdateAsync(current, cancellationToken);
 		}
 
-		return new CommandResponse { ResponseMessage = $"Усі учасники обрали {votes.SelectedBudget} грн. Жеребкування виконано, Санти отримали дані про своїх отримувачів." };
+		return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NoContent };
 	}
 }

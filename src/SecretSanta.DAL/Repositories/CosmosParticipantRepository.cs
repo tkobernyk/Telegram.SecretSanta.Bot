@@ -6,11 +6,11 @@ namespace SecretSanta.DAL.Repositories;
 
 public class CosmosParticipantRepository : IParticipantRepository
 {
-	#region
 	const string GetByTelegramUserIdQuery = "SELECT * FROM c WHERE c.eventId = @eventId AND c.TelegramUserId = @telegramUserId";
-	#endregion
+	const string GetAllByEventQuery = "SELECT * FROM c WHERE c.eventId = @eventId";
 
 	readonly IExecutor _executor;
+	readonly string _container = "Participants";
 
 	public CosmosParticipantRepository(IExecutor executor)
 	{
@@ -19,32 +19,318 @@ public class CosmosParticipantRepository : IParticipantRepository
 
 	public async Task<Participant?> GetByTelegramUserIdAsync(string eventId, string telegramUserId, CancellationToken cancellationToken = default)
 	{
-		var query = new QueryDefinition(GetByTelegramUserIdQuery)
-			.WithParameter("@eventId", eventId)
-			.WithParameter("@telegramUserId", telegramUserId);
-
-		var item = await _executor.GetItemByIdAsync<Participant>(query, eventId, cancellationToken);
-		return item;
+		var items = await _executor.QueryAsync<Participant>(_container, GetByTelegramUserIdQuery, new { eventId, telegramUserId }, cancellationToken);
+		return items.FirstOrDefault();
 	}
 
 	public async Task CreateAsync(Participant participant, CancellationToken cancellationToken = default)
 	{
 		if (string.IsNullOrEmpty(participant.EventId)) throw new ArgumentException("participant.EventId is required");
-		await _executor.CreateItemAsync(participant, participant.EventId, cancellationToken: cancellationToken);
+		await _executor.CreateItemAsync(_container, participant.EventId, participant, cancellationToken);
 	}
 
 	public async Task UpdateAsync(Participant participant, CancellationToken cancellationToken = default)
 	{
 		if (string.IsNullOrEmpty(participant.EventId)) throw new ArgumentException("participant.EventId is required");
-		await _executor.UpsertItemAsync(participant, participant.EventId, cancellationToken: cancellationToken);
+		await _executor.UpsertItemAsync(_container, participant.EventId, participant, cancellationToken);
 	}
 
 	public async Task<IEnumerable<Participant>> GetAllByEventAsync(string eventId, CancellationToken cancellationToken = default)
 	{
-		var query = new QueryDefinition("SELECT * FROM c WHERE c.eventId = @eventId")
-			.WithParameter("@eventId", eventId);
-
-		var items = await _executor.GetItemByIdAsync<IEnumerable<Participant>>(query, eventId, cancellationToken);
-		return items ?? Enumerable.Empty<Participant>();
+		return await _executor.QueryAsync<Participant>(_container, GetAllByEventQuery, new { eventId }, cancellationToken);
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,10 +1,5 @@
-using System.Threading;
-using System.Threading.Tasks;
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
-using SecretSanta.DAL.Cosmos;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace SecretSanta.DAL.Repositories;
 

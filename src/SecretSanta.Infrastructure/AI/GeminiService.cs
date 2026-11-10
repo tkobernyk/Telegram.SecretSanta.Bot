@@ -1,81 +1,125 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace SecretSanta.Infrastructure.AI;
 
-public class GeminiService : IGeminiService
+public class GroqService : ITextGenerationService
 {
+	const int MaxAttempts = 3;
+	static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(250);
+	static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(2);
 	readonly IHttpClientFactory _httpFactory;
-	readonly ILogger<GeminiService> _logger;
+	readonly ILogger<GroqService> _logger;
 	readonly string _apiKey;
 	readonly string _model;
 
-	public GeminiService(IHttpClientFactory httpFactory, IConfiguration configuration, ILogger<GeminiService> logger)
+	public GroqService(IHttpClientFactory httpFactory, IConfiguration configuration, ILogger<GroqService> logger)
 	{
 		_httpFactory = httpFactory;
 		_logger = logger;
-		_apiKey = configuration["Values:Gemini:ApiKey"] ?? string.Empty;
-		_model = configuration["Values:Gemini:Model"] ?? "models/text-bison-001";
+		_apiKey = GetConfigurationValue(configuration, "Groq:ApiKey", "Groq__ApiKey", "Values:Groq__ApiKey", "Values:Groq:ApiKey");
+		_model = GetConfigurationValue(configuration, "Groq:Model", "Groq__Model", "Values:Groq__Model", "Values:Groq:Model");
+		if (string.IsNullOrWhiteSpace(_model))
+		{
+			_model = "llama-3.3-70b-versatile";
+		}
+		_model = _model.Trim();
 	}
 
-	public async Task<string> GenerateResponseAsync(string prompt, CancellationToken cancellationToken = default)
+	private static string GetConfigurationValue(IConfiguration configuration, params string[] keys)
 	{
-		if (string.IsNullOrEmpty(_apiKey))
+		foreach (var key in keys)
 		{
-			_logger.LogWarning("Gemini API key is not configured.");
-			throw new InvalidOperationException("Gemini API key is not configured.");
-		}
-
-		var client = _httpFactory.CreateClient("gemini");
-
-		var payload = new
-		{
-			prompt = new { text = prompt },
-			maxOutputTokens = 512,
-			temperature = 0.7
-		};
-
-		var url = $"v1/{_model}:generateText?key={_apiKey}";
-
-		HttpResponseMessage resp;
-		try
-		{
-			resp = await client.PostAsJsonAsync(url, payload, cancellationToken);
-		}
-		catch (Exception ex)
-		{
-			_logger.LogError(ex, "Error sending request to Gemini");
-			throw;
-		}
-
-		if (!resp.IsSuccessStatusCode)
-		{
-			var body = await resp.Content.ReadAsStringAsync(cancellationToken);
-			_logger.LogError("Gemini returned status {Status} body={Body}", resp.StatusCode, body);
-			resp.EnsureSuccessStatusCode();
-		}
-
-		using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
-		var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-
-		// Expecting response shape with candidates[].content[].text (Generative Language API)
-		if (json.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
-		{
-			var first = candidates[0];
-			if (first.TryGetProperty("content", out var content) && content.GetArrayLength() > 0)
+			var value = configuration[key];
+			if (!string.IsNullOrWhiteSpace(value))
 			{
-				var text = content[0].GetProperty("text").GetString();
-				return text ?? string.Empty;
+				return value.Trim();
 			}
 		}
 
-		if (json.RootElement.TryGetProperty("output", out var output) && output.TryGetProperty("text", out var outText))
+		return string.Empty;
+	}
+
+	public async Task<string> GenerateResponseAsync(string prompt, CancellationToken cancellationToken = default, Func<CancellationToken, Task>? onSecondAttempt = null)
+	{
+		if (string.IsNullOrEmpty(_apiKey))
 		{
-			return outText.GetString() ?? string.Empty;
+			_logger.LogWarning("Groq API key is not configured.");
+			throw new InvalidOperationException("Groq API key is not configured.");
 		}
 
-		return string.Empty;
+		var client = _httpFactory.CreateClient("groq");
+		var payload = JsonSerializer.Serialize(new
+		{
+			model = _model,
+			messages = new[]
+			{
+				new { role = "user", content = prompt }
+			},
+			max_completion_tokens = 512,
+			temperature = 0.7
+		});
+		for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+		{
+			using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+			{
+				Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json")
+			};
+			request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
+			using var resp = await client.SendAsync(request, cancellationToken);
+			if (resp.IsSuccessStatusCode)
+			{
+				using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
+				using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+				return GetGeneratedText(json);
+			}
+
+			if (!IsTransientStatusCode(resp.StatusCode) || attempt == MaxAttempts)
+			{
+				_logger.LogError("Groq returned status {StatusCode} after {AttemptCount} attempt(s).", (int)resp.StatusCode, attempt);
+				throw new HttpRequestException($"Groq request failed with status code {(int)resp.StatusCode}.", null, resp.StatusCode);
+			}
+
+			var retryDelay = GetRetryDelay(resp, attempt);
+			_logger.LogWarning("Groq returned transient status {StatusCode}; retrying in {RetryDelayMs} ms (attempt {Attempt}/{MaxAttempts}).", (int)resp.StatusCode, retryDelay.TotalMilliseconds, attempt, MaxAttempts);
+			if (attempt == 1 && onSecondAttempt != null)
+			{
+				await onSecondAttempt(cancellationToken);
+			}
+			await Task.Delay(retryDelay, cancellationToken);
+		}
+
+		throw new InvalidOperationException("Groq request ended without a successful response.");
+	}
+
+	private static bool IsTransientStatusCode(System.Net.HttpStatusCode statusCode) =>
+		statusCode is System.Net.HttpStatusCode.RequestTimeout or System.Net.HttpStatusCode.TooManyRequests or
+		System.Net.HttpStatusCode.InternalServerError or System.Net.HttpStatusCode.BadGateway or
+		System.Net.HttpStatusCode.ServiceUnavailable or System.Net.HttpStatusCode.GatewayTimeout;
+
+	private static TimeSpan GetRetryDelay(HttpResponseMessage response, int attempt)
+	{
+		var retryAfter = response.Headers.RetryAfter;
+		var delay = retryAfter?.Delta ?? (retryAfter?.Date is { } retryDate ? retryDate - DateTimeOffset.UtcNow : TimeSpan.FromMilliseconds(250 * attempt));
+		return delay < TimeSpan.Zero ? TimeSpan.Zero : delay > MaxRetryAfter ? MaxRetryAfter : delay;
+	}
+
+	private static string GetGeneratedText(JsonDocument json)
+	{
+		if (json.RootElement.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
+		{
+			var first = choices[0];
+			if (first.TryGetProperty("message", out var message) && message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+			{
+				var result = content.GetString();
+				if (!string.IsNullOrWhiteSpace(result))
+				{
+					return result;
+				}
+			}
+		}
+
+		throw new InvalidOperationException("Groq response did not contain generated text.");
 	}
 }

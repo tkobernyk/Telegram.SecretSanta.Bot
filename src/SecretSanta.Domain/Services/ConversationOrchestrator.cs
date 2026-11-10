@@ -12,7 +12,7 @@ namespace SecretSanta.Domain.Services;
 
 public class ConversationOrchestrator : IConversationOrchestrator
 {
-	readonly IGeminiService _gemini;
+	readonly ITextGenerationService _textGeneration;
 	readonly IPendingUserInputService _pending;
 	readonly ITelegramSender _telegram;
 	readonly IParticipantService _participantService;
@@ -21,9 +21,9 @@ public class ConversationOrchestrator : IConversationOrchestrator
 	readonly IConversationRepository _conversationRepo;
 	private readonly TimeSpan _conversationTimeout;
 
-	public ConversationOrchestrator(IGeminiService gemini, IPendingUserInputService pending, ITelegramSender telegram, IParticipantService participantService, IWizardRegistry registry, IConversationRepository conversationRepo, IConfiguration configuration, ILogger<ConversationOrchestrator> logger)
+	public ConversationOrchestrator(ITextGenerationService textGeneration, IPendingUserInputService pending, ITelegramSender telegram, IParticipantService participantService, IWizardRegistry registry, IConversationRepository conversationRepo, IConfiguration configuration, ILogger<ConversationOrchestrator> logger)
 	{
-		_gemini = gemini;
+		_textGeneration = textGeneration;
 		_pending = pending;
 		_telegram = telegram;
 		_participantService = participantService;
@@ -35,7 +35,7 @@ public class ConversationOrchestrator : IConversationOrchestrator
 		_conversationTimeout = TimeSpan.FromMinutes(minutes);
 	}
 
-	public async Task StartConversationAsync(string eventId, string santaTelegramUserId, string recipientTelegramUserId, CancellationToken cancellationToken = default)
+	public async Task StartConversationAsync(string eventId, string santaTelegramUserId, string recipientTelegramUserId, string initiatorTelegramUserId, CancellationToken cancellationToken = default)
 	{
 		// permissions: ensure santa and recipient are registered participants
 		var santa = await _participantService.GetByTelegramUserIdAsync(eventId, santaTelegramUserId, cancellationToken);
@@ -59,7 +59,6 @@ public class ConversationOrchestrator : IConversationOrchestrator
 		cs.Data["conversationId"] = conv.Id;
 		cs.Data["santa"] = santaTelegramUserId;
 		cs.Data["recipient"] = recipientTelegramUserId;
-		_pending.StartConversation(recipientTelegramUserId, cs);
 		var santaState = new ConversationState { WizardName = "santa_dialog", StepIndex = 0 };
 		santaState.Data["conversationId"] = conv.Id;
 		santaState.Data["santa"] = santaTelegramUserId;
@@ -67,19 +66,59 @@ public class ConversationOrchestrator : IConversationOrchestrator
 		santaState.Data["role"] = "santa";
 		_pending.StartConversation(santaTelegramUserId, santaState);
 		cs.Data["role"] = "recipient";
+		_pending.StartConversation(recipientTelegramUserId, cs);
 
-		// Prepare initial prompt for Gemini using improved system prompt
+		var progressMessage = "Пробую зв’язатися з AI-помічником Санти. Це може зайняти кілька секунд.";
+		await _telegram.SendMessageAsync(initiatorTelegramUserId, progressMessage);
+
+		// Prepare the initial prompt when the text-generation service is available.
 		var prompt = $"System: Ти — анонімний помічник Таємного Санти. Відповідай лише українською. Склади коротке анонімне запитання про подарунок. Не розкривай особу Санти. Вішліст отримувача: {recipient.WishlistText ?? "не заповнений"}.";
-		var generated = await _gemini.GenerateResponseAsync(prompt, cancellationToken);
-
-		// persist initial AI message
-		var msg = new ConversationMessage { EventId = eventId, ConversationId = conv.Id, SenderTelegramUserId = "ai", SenderDisplayName = "SecretSantaBot", Text = generated, MessageType = "AiGeneratedMessage" };
-		await _conversationRepo.AddMessageAsync(msg, cancellationToken);
-
-		// send to recipient
+		string? generated = null;
 		try
 		{
-			await _telegram.SendMessageAsync(recipientTelegramUserId, generated);
+			generated = await _textGeneration.GenerateResponseAsync(prompt, cancellationToken, async token =>
+			{
+				const string retryMessage = "Продовжую стукати до AI-помічника Санти — поки ніхто не відповідає.";
+				await _telegram.SendMessageAsync(initiatorTelegramUserId, retryMessage);
+			});
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			await CloseConversationAfterStartupCancellationAsync(conv, santaTelegramUserId, recipientTelegramUserId);
+			throw;
+		}
+		catch (Exception ex)
+		{
+			_logger.LogWarning(ex, "Groq is unavailable; starting this conversation in direct anonymous mode.");
+		}
+
+		var aiEnabled = !string.IsNullOrWhiteSpace(generated);
+		cs.Data["aiEnabled"] = aiEnabled.ToString();
+		santaState.Data["aiEnabled"] = aiEnabled.ToString();
+		_pending.StartConversation(recipientTelegramUserId, cs);
+
+		if (aiEnabled)
+		{
+			var msg = new ConversationMessage { EventId = eventId, ConversationId = conv.Id, SenderTelegramUserId = "ai", SenderDisplayName = "SecretSantaBot", Text = generated!, MessageType = "AiGeneratedMessage" };
+			await _conversationRepo.AddMessageAsync(msg, cancellationToken);
+		}
+
+		try
+		{
+			if (aiEnabled)
+			{
+				await _telegram.SendMessageAsync(recipientTelegramUserId, generated!);
+			}
+			else
+			{
+				var endKeyboard = BuildEndConversationKeyboard();
+				await _telegram.SendMessageAsync(recipientTelegramUserId, "AI-помічник Санти зараз зайнятий. Можете продовжити анонімне спілкування напряму — надішліть повідомлення.", endKeyboard);
+				await _telegram.SendMessageAsync(santaTelegramUserId, "AI-помічник Санти зараз зайнятий. Можете продовжити анонімне спілкування напряму — ваші повідомлення будуть передані отримувачу.", endKeyboard);
+			}
+			if (aiEnabled)
+			{
+				await _telegram.SendMessageAsync(santaTelegramUserId, "AI-помічник на зв’язку. Можете писати повідомлення — спілкування буде анонімним.");
+			}
 		}
 		catch (Exception ex)
 		{
@@ -88,13 +127,21 @@ public class ConversationOrchestrator : IConversationOrchestrator
 		}
 	}
 
+	private async Task CloseConversationAfterStartupCancellationAsync(Conversation conversation, string santaTelegramUserId, string recipientTelegramUserId)
+	{
+		conversation.Status = "Closed";
+		await _conversationRepo.UpdateConversationAsync(conversation, CancellationToken.None);
+		_pending.EndConversation(santaTelegramUserId);
+		_pending.EndConversation(recipientTelegramUserId);
+	}
+
 	public async Task<string?> HandleIncomingMessageAsync(string eventId, string senderTelegramUserId, string text, CancellationToken cancellationToken = default)
 	{
 		// Check active conversation state for either participant.
 		if (!_pending.TryGetConversation(senderTelegramUserId, out var state) || state == null)
 		{
 			// Recover a conversation initiated by the santa, if available.
-			var conv = await _conversationRepo.GetByRecipientAsync(eventId, senderTelegramUserId, cancellationToken);
+			var conv = await _conversationRepo.GetActiveForParticipantAsync(eventId, senderTelegramUserId, cancellationToken);
 			if (conv == null) return null;
 
 			// if persistent conv exists but no transient state, recreate transient state
@@ -111,7 +158,8 @@ public class ConversationOrchestrator : IConversationOrchestrator
 
 		state.Data.TryGetValue("recipient", out var recipientId);
 		state.Data.TryGetValue("santa", out var santaId);
-		var convEntity = await _conversationRepo.GetByRecipientAsync(eventId, recipientId ?? senderTelegramUserId, cancellationToken);
+		var aiEnabled = !state.Data.TryGetValue("aiEnabled", out var aiEnabledValue) || !bool.TryParse(aiEnabledValue, out var parsedAiEnabled) || parsedAiEnabled;
+		var convEntity = await _conversationRepo.GetActiveForParticipantAsync(eventId, senderTelegramUserId, cancellationToken);
 		if (convEntity == null) return null;
 
 		if (DateTime.UtcNow - convEntity.UpdatedAtUtc > _conversationTimeout)
@@ -126,8 +174,18 @@ public class ConversationOrchestrator : IConversationOrchestrator
 		// persist incoming user message
 		var userMsg = new ConversationMessage { EventId = eventId, ConversationId = convId, SenderTelegramUserId = senderTelegramUserId, Text = text, MessageType = "UserMessage" };
 		await _conversationRepo.AddMessageAsync(userMsg, cancellationToken);
+		var otherParticipantId = senderTelegramUserId == convEntity.SantaTelegramUserId ? convEntity.RecipientTelegramUserId : convEntity.SantaTelegramUserId;
+		var anonymousSenderLabel = senderTelegramUserId == convEntity.SantaTelegramUserId ? "Санти" : "Отримувача";
+		if (!aiEnabled)
+		{
+			await _telegram.SendMessageAsync(otherParticipantId, $"Анонімне повідомлення від {anonymousSenderLabel}:\n{text}");
+			convEntity.UpdatedAtUtc = DateTime.UtcNow;
+			await _conversationRepo.UpdateConversationAsync(convEntity, cancellationToken);
+			_pending.UpdateConversation(senderTelegramUserId, state);
+			return "Повідомлення доставлено.";
+		}
 
-		// Build prompt for Gemini using conversation history and the recipient's wishlist.
+		// Build prompt using conversation history and the recipient's wishlist.
 		var history = state.Data.GetValueOrDefault("history", string.Empty);
 		history += $"Учасник: {text}\n";
 		state.Data["history"] = history;
@@ -140,7 +198,30 @@ public class ConversationOrchestrator : IConversationOrchestrator
 		promptBuilder.AppendLine(history);
 		promptBuilder.AppendLine("Постав доречне уточнювальне запитання або коротко підсумуй відповідь українською.");
 
-		var next = await _gemini.GenerateResponseAsync(promptBuilder.ToString(), cancellationToken);
+		string next;
+		try
+		{
+			next = await _textGeneration.GenerateResponseAsync(promptBuilder.ToString(), cancellationToken);
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			_logger.LogWarning(ex, "Groq is unavailable; switching this conversation to direct anonymous mode.");
+			state.Data["aiEnabled"] = bool.FalseString;
+			if (_pending.TryGetConversation(otherParticipantId, out var otherState) && otherState != null)
+			{
+				otherState.Data["aiEnabled"] = bool.FalseString;
+				_pending.UpdateConversation(otherParticipantId, otherState);
+			}
+			await _telegram.SendMessageAsync(otherParticipantId, $"Анонімне повідомлення від {anonymousSenderLabel}:\n{text}");
+			convEntity.UpdatedAtUtc = DateTime.UtcNow;
+			await _conversationRepo.UpdateConversationAsync(convEntity, cancellationToken);
+			_pending.UpdateConversation(senderTelegramUserId, state);
+			return "AI зараз недоступний. Повідомлення доставлено.";
+		}
 
 		// persist AI message
 		var aiMsg = new ConversationMessage { EventId = eventId, ConversationId = convId, SenderTelegramUserId = "ai", SenderDisplayName = "SecretSantaBot", Text = next, MessageType = "AiGeneratedMessage" };
@@ -149,9 +230,7 @@ public class ConversationOrchestrator : IConversationOrchestrator
 		// Send AI's Ukrainian response to the current participant and forward the anonymous exchange to the other side.
 		try
 		{
-			await _telegram.SendMessageAsync(senderTelegramUserId, next);
-			var otherParticipantId = senderTelegramUserId == convEntity.SantaTelegramUserId ? convEntity.RecipientTelegramUserId : convEntity.SantaTelegramUserId;
-			await _telegram.SendMessageAsync(otherParticipantId, $"Анонімне повідомлення:\n{text}\n\nУточнення помічника:\n{next}");
+			await _telegram.SendMessageAsync(otherParticipantId, $"Анонімне повідомлення від {anonymousSenderLabel}:\n{text}\n\nУточнення помічника:\n{next}");
 		}
 		catch (Exception ex)
 		{
@@ -171,32 +250,36 @@ public class ConversationOrchestrator : IConversationOrchestrator
 	public async Task EndConversationAsync(string eventId, string initiatorTelegramUserId, CancellationToken cancellationToken = default)
 	{
 		// attempt to find conversation where initiator is either santa or recipient
-		var conv = await _conversationRepo.GetByRecipientAsync(eventId, initiatorTelegramUserId, cancellationToken);
-		if (conv == null)
-		{
-			// try find where initiator is santa
-			// simplest: query by eventId and SantaTelegramUserId (use same query pattern)
-			var q = new Microsoft.Azure.Cosmos.QueryDefinition("SELECT * FROM c WHERE c.eventId = @eventId AND c.SantaTelegramUserId = @santa")
-				.WithParameter("@eventId", eventId)
-				.WithParameter("@santa", initiatorTelegramUserId);
-			// reuse executor via conversation repo if needed - but conversationRepo doesn't expose general query; fallback: do nothing
-			return;
-		}
+		var conv = await _conversationRepo.GetActiveForParticipantAsync(eventId, initiatorTelegramUserId, cancellationToken);
+		if (conv == null) return;
 
 		conv.Status = "Closed";
 		await _conversationRepo.UpdateConversationAsync(conv, cancellationToken);
 		_pending.EndConversation(conv.RecipientTelegramUserId);
+		_pending.EndConversation(conv.SantaTelegramUserId);
 
 		// notify both parties
 		try
 		{
-			await _telegram.SendMessageAsync(conv.RecipientTelegramUserId, "Діалог було скасовано.");
-			await _telegram.SendMessageAsync(conv.SantaTelegramUserId, "Діалог було скасовано.");
+		var nextActions = BuildPostConversationKeyboard();
+		await _telegram.SendMessageAsync(conv.RecipientTelegramUserId, "Діалог завершено. Оберіть, що робити далі:", nextActions);
+		await _telegram.SendMessageAsync(conv.SantaTelegramUserId, "Діалог завершено. Оберіть, що робити далі:", nextActions);
 		}
 		catch (Exception ex)
 		{
 			_logger.LogError(ex, "Failed to send cancellation messages");
 		}
 	}
+
+	private static Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup BuildEndConversationKeyboard() => new(new[]
+	{
+		new[] { Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("Завершити діалог", "conversation:end") }
+	});
+
+	private static Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup BuildPostConversationKeyboard() => new(new[]
+	{
+		new[] { Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("Уточнити в отримувача", "chat:recipient") },
+		new[] { Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("Написати Secret Santa", "chat:santa") }
+	});
 }
 

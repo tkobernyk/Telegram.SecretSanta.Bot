@@ -1,5 +1,3 @@
-using System.Threading;
-using System.Threading.Tasks;
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
 

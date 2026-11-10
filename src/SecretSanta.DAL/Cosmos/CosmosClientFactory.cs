@@ -1,8 +1,20 @@
+using System.Reflection;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using SecretSanta.DAL.Abstractions;
 
 namespace SecretSanta.DAL.Cosmos;
+
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
+public sealed class CosmosContainerAttribute : Attribute
+{
+	public CosmosContainerAttribute(string name)
+	{
+		Name = name;
+	}
+
+	public string Name { get; }
+}
 
 public class CosmosClientFactory : ICosmosClientFactory
 {
@@ -37,10 +49,24 @@ public class CosmosClientFactory : ICosmosClientFactory
 
 	public Container GetContainer()
 	{
-		if (string.IsNullOrEmpty(_databaseName) || string.IsNullOrEmpty(_containerName))
+		return GetContainer(_containerName);
+	}
+
+	public Container GetContainer(string containerName)
+	{
+		if (string.IsNullOrEmpty(_databaseName) || string.IsNullOrEmpty(containerName))
 		{
-			throw new ArgumentException("Cosmos__DatabaseName and Cosmos__ContainerName configuration values are required to get a Cosmos Container.");
+			throw new ArgumentException("Cosmos__DatabaseName and container name are required to get a Cosmos Container.");
 		}
-		return _client.GetContainer(_databaseName, _containerName);
+
+		return _client.GetContainer(_databaseName, containerName);
+	}
+
+	public Container GetContainer<T>()
+	{
+		var type = typeof(T);
+		var attribute = type.GetCustomAttribute<CosmosContainerAttribute>();
+		var containerName = attribute?.Name ?? type.Name;
+		return GetContainer(containerName);
 	}
 }

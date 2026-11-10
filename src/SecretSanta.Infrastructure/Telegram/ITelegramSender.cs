@@ -5,5 +5,6 @@ namespace SecretSanta.Infrastructure.Telegram
 	public interface ITelegramSender
 	{
 		Task SendMessageAsync(string telegramUserId, string text, ReplyMarkup? replyMarkup = null);
+		Task AnswerCallbackQueryAsync(string callbackQueryId, string? text = null);
 	}
 }

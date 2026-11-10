@@ -1,5 +1,6 @@
 using MediatR;
 using SecretSanta.Domain.Abstractions;
+using SecretSanta.Domain.Helpers;
 using System.Net;
 using System.Text;
 
@@ -24,7 +25,7 @@ public class ProfileHandler(IParticipantService _participantService) : IRequestH
 			{
 				StatusCode = HttpStatusCode.OK,
 				Payload = default,
-				ResponseMessage = "Ви не зареєстровані. Використайте /start щоб зареєструватись."
+				ResponseMessage = "Ви не зареєстровані. Використайте /start, щоб зареєструватись."
 			};
 		}
 
@@ -42,13 +43,14 @@ public class ProfileHandler(IParticipantService _participantService) : IRequestH
 		if (!string.IsNullOrWhiteSpace(participant.OtherPreferences)) sb.AppendLine($"Other: {participant.OtherPreferences}");
 
 		sb.AppendLine();
-		sb.AppendLine("Щоб додати або змінити ваші побажання щодо подарунку, скористайтесь командою /wishlist. Після команди бот попросить ввести текст побажань та збереже її у вашому профілі.");
+		sb.AppendLine("Щоб додати або змінити побажання щодо подарунку, натисніть кнопку «Мої побажання».");
 
 		return new ProfileResponse
 		{
 			StatusCode = HttpStatusCode.OK,
 			Payload = default,
-			ResponseMessage = sb.ToString()
+			ResponseMessage = sb.ToString(),
+			ReplyMarkup = ProfileWishlistKeyboard.Create()
 		};
 	}
 }

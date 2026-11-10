@@ -1,10 +1,12 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Security.Cryptography;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using MediatR;
+using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Models;
 using SecretSanta.Domain.Handlers.TelegramEndpoint;
 
@@ -14,23 +16,31 @@ internal class TelegramWebhookService : ITelegramWebhookService
 {
 	readonly ILogger<TelegramWebhookService> _logger;
 	readonly IMediator _mediator;
+	readonly IPendingUserInputService _pending;
 
-	public TelegramWebhookService(ILogger<TelegramWebhookService> logger, IMediator mediator)
+	public TelegramWebhookService(ILogger<TelegramWebhookService> logger, IMediator mediator, IPendingUserInputService pending)
 	{
 		_logger = logger;
 		_mediator = mediator;
+		_pending = pending;
 	}
 
 	private class TelegramUpdate
 	{
+		[JsonPropertyName("message")]
 		public TelegramMessage? Message { get; set; }
+		[JsonPropertyName("callback_query")]
 		public TelegramCallbackQuery? CallbackQuery { get; set; }
 	}
 
 	private class TelegramCallbackQuery
 	{
+		[JsonPropertyName("from")]
 		public TelegramUser? From { get; set; }
+		[JsonPropertyName("data")]
 		public string? Data { get; set; }
+		[JsonPropertyName("id")]
+		public string? Id { get; set; }
 	}
 
 	public async Task<HttpResponseData> HandleAsync(HttpRequestData req)
@@ -92,7 +102,7 @@ internal class TelegramWebhookService : ITelegramWebhookService
 
 		var message = update?.Message;
 		var callback = update?.CallbackQuery;
-		var sender = message?.From ?? callback?.From;
+	var sender = callback?.From ?? message?.From;
 		if (sender == null)
 		{
 			_logger.LogInformation("No message or sender in update; ignoring.");
@@ -101,7 +111,13 @@ internal class TelegramWebhookService : ITelegramWebhookService
 			return respIgnored;
 		}
 
-		var eventId = Environment.GetEnvironmentVariable("App__EventId") ?? "default-event";
+		var defaultEventId = Environment.GetEnvironmentVariable("App__EventId") ?? "default-event";
+		var eventId = defaultEventId;
+		var persistedEventId = await _pending.GetActiveEventIdAsync(sender.Id.ToString());
+		if (!string.IsNullOrWhiteSpace(persistedEventId))
+		{
+			eventId = persistedEventId;
+		}
 
 		var request = new TelegramEndpointRequest
 		{
@@ -117,7 +133,8 @@ internal class TelegramWebhookService : ITelegramWebhookService
 					Username = sender.Username
 				},
 				Text = message?.Text ?? callback?.Data,
-				CallbackData = callback?.Data
+				CallbackData = callback?.Data,
+				CallbackQueryId = callback?.Id
 			}
 		};
 

@@ -2,143 +2,7 @@ using MediatR;
 using SecretSanta.DAL.Abstractions;
 using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Models;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+using SecretSanta.Domain.Helpers;
 
 namespace SecretSanta.Domain.Handlers.Commands.Start;
 
@@ -166,22 +30,33 @@ public class StartJoinHandler(IParticipantService participantService, IEventRepo
 		var eventEntity = await eventRepository.GetByJoinCodeAsync(joinCode, cancellationToken);
 		if (eventEntity == null)
 		{
+			pending.StartConversation(telegramUserId, new ConversationState { WizardName = "start_event", StepIndex = 1 });
 			return new StartResponse { StatusCode = System.Net.HttpStatusCode.NotFound, ResponseMessage = "Не знайдено Secret Santa за таким ключем. Перевірте код і спробуйте ще раз." };
 		}
 
 		var participant = await participantService.GetByTelegramUserIdAsync(eventEntity.EventId, telegramUserId, cancellationToken);
 		if (participant != null)
 		{
-			return new StartResponse { StatusCode = System.Net.HttpStatusCode.OK, ResponseMessage = "Ви вже приєднані до цього Secret Santa." };
+			await pending.SetActiveEventIdAsync(telegramUserId, eventEntity.EventId, cancellationToken);
+			pending.EndConversation(telegramUserId);
+			return new StartResponse
+			{
+				StatusCode = System.Net.HttpStatusCode.OK,
+				ResponseMessage = "Ви вже приєднані до цього Secret Santa.",
+				ReplyMarkup = EventParticipantKeyboard.Create(eventEntity.State)
+			};
 		}
 
-		var created = await RegisterParticipantAsync(eventEntity.EventId, telegramUserId, request.DisplayName ?? $"user-{telegramUserId}", cancellationToken);
+		var displayName = request.DisplayName ?? request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? $"user-{telegramUserId}";
+		var created = await RegisterParticipantAsync(eventEntity.EventId, telegramUserId, displayName, cancellationToken);
+		await pending.SetActiveEventIdAsync(telegramUserId, eventEntity.EventId, cancellationToken);
 		pending.EndConversation(telegramUserId);
 		return new StartResponse
 		{
 			StatusCode = System.Net.HttpStatusCode.Created,
 			Payload = new { eventId = eventEntity.EventId, joinCode = eventEntity.JoinCode },
-			ResponseMessage = $"Ви успішно приєдналися до Secret Santa. Ключ: {eventEntity.JoinCode}\nТепер заповніть ваш профіль за допомогою /profile або /wishlist."
+			ResponseMessage = $"Ви успішно приєдналися до Secret Santa. Ключ: {eventEntity.JoinCode}\nЗаповніть ваш профіль або побажання кнопками нижче.",
+			ReplyMarkup = ProfileWishlistKeyboard.Create()
 		};
 	}
 
@@ -194,7 +69,8 @@ public class StartJoinHandler(IParticipantService participantService, IEventRepo
 			{
 				StatusCode = System.Net.HttpStatusCode.OK,
 				Payload = default,
-				ResponseMessage = $"Ви вже зареєстровані, {existing.DisplayName}. Використайте /profile щоб переглянути анкету."
+				ResponseMessage = $"Ви вже зареєстровані, {existing.DisplayName}. Перегляньте профіль або оновіть побажання кнопками нижче.",
+				ReplyMarkup = ProfileWishlistKeyboard.Create()
 			};
 		}
 
@@ -219,7 +95,8 @@ public class StartJoinHandler(IParticipantService participantService, IEventRepo
 		{
 			StatusCode = System.Net.HttpStatusCode.Created,
 			Payload = default,
-			ResponseMessage = $"Дякую, {participant.DisplayName}! Ви успішно зареєстровані. Використайте /profile щоб переглянути анкету."
+			ResponseMessage = $"Дякую, {participant.DisplayName}! Ви успішно зареєстровані. Перегляньте профіль або заповніть побажання кнопками нижче.",
+			ReplyMarkup = ProfileWishlistKeyboard.Create()
 		};
 	}
 }

@@ -14,8 +14,8 @@ namespace SecretSanta.DAL.Tests
 		{
 			var participant = new Participant { EventId = "evt-1", TelegramUserId = "tg-123", DisplayName = "Test" };
 			var fake = Substitute.For<IExecutor>();
-			fake.GetItemByIdAsync<Participant>(Arg.Any<QueryDefinition>(), "evt-1", Arg.Any<CancellationToken>())
-				.Returns(Task.FromResult(participant));
+			fake.QueryAsync<Participant>(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+				.Returns(Task.FromResult<IEnumerable<Participant>>(new[] { participant }));
 
 			var repo = new CosmosParticipantRepository(fake);
 
@@ -30,8 +30,8 @@ namespace SecretSanta.DAL.Tests
 		public async Task GetByTelegramUserIdAsync_ReturnsNull_WhenNotFound()
 		{
 			var fake = Substitute.For<IExecutor>();
-			fake.GetItemByIdAsync<Participant>(Arg.Any<QueryDefinition>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-				.Returns(await Task.FromResult<Participant>(default!));
+			fake.QueryAsync<Participant>(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+				.Returns(Task.FromResult<IEnumerable<Participant>>(Array.Empty<Participant>()));
 
 			var repo = new CosmosParticipantRepository(fake);
 
@@ -54,15 +54,283 @@ namespace SecretSanta.DAL.Tests
 		public async Task CreateAsync_CallsExecutorCreate_WhenValid()
 		{
 			var fake = Substitute.For<IExecutor>();
-			fake.CreateItemAsync(Arg.Any<Participant>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-				.Returns(call => Task.FromResult(call.ArgAt<Participant>(0)));
+			fake.CreateItemAsync<Participant>(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Participant>(), Arg.Any<CancellationToken>())
+				.Returns(call => Task.FromResult(call.ArgAt<Participant>(2)));
 
 			var repo = new CosmosParticipantRepository(fake);
 			var participant = new Participant { EventId = "evt-1", TelegramUserId = "tg-1" };
 
 			await repo.CreateAsync(participant);
 
-			await fake.Received(1).CreateItemAsync(Arg.Is<Participant>(p => p == participant), participant.EventId, Arg.Any<CancellationToken>());
+			await fake.Received(1).CreateItemAsync<Participant>(Arg.Any<string>(), participant.EventId, Arg.Is<Participant>(p => p == participant), Arg.Any<CancellationToken>());
 		}
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
