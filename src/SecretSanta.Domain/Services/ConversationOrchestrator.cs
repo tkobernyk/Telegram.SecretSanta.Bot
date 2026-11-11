@@ -205,15 +205,15 @@ public class ConversationOrchestrator : IConversationOrchestrator
 		}
 	}
 
-	private static Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup BuildConversationEndKeyboard() => new(new[]
-	{
-		new[] { Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("👋Завершити діалог", "conversation:end") }
-	});
+	static Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup BuildConversationEndKeyboard() => new(
+	[
+		[Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("👋Завершити діалог", "conversation:end")]
+	]);
 
-	private static Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup BuildPostConversationKeyboard() => new(new[]
+	static Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup BuildPostConversationKeyboard() => new(new[]
 	{
-		new[] { Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("💬Уточнити в отримувача", "chat:recipient") },
-		new[] { Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("🎅Запитати в Миколайка", "chat:santa") },
+		[Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("💬Уточнити в отримувача", "chat:recipient")],
+		[Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("🎅Запитати в Миколайка", "chat:santa")],
 		new[] { Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("🎁Подарунок готовий", "gift:ready") }
 	});
 }

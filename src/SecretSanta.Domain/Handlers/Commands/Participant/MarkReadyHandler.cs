@@ -105,11 +105,10 @@ public class MarkReadyHandler : IRequestHandler<MarkReadyRequest, CommandRespons
 	}
 
 	private static InlineKeyboardMarkup BuildGiftStatusKeyboard(string currentStatus) => currentStatus == GiftStatusValue.Ready
-		? new(new[] { new[] { InlineKeyboardButton.WithCallbackData("Ще хочу дещо уточнити", "gift:progress") } })
+		? new(new[] { new[] { InlineKeyboardButton.WithCallbackData("🤔Ще хочу дещо уточнити", "gift:progress") } })
 		: new(new[]
 		{
 			new[] { InlineKeyboardButton.WithCallbackData("🎁Подарунок вже готовий", "gift:ready") },
-			new[] { InlineKeyboardButton.WithCallbackData("🤔Ще хочу дещо уточнити", "gift:progress") },
 			new[] { InlineKeyboardButton.WithCallbackData("💬Уточнити в Отримувача", "chat:recipient") },
 			new[] { InlineKeyboardButton.WithCallbackData("🎅Написати Миколайкові", "chat:santa") }
 		});
