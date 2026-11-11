@@ -18,6 +18,7 @@ public class Participant
 	public string? OtherPreferences { get; set; }
 	public string RegistrationStatus { get; set; }
 	public string GiftStatus { get; set; } = "NotStarted";
+	public string BudgetStatus { get; set; } = "NotStarted";
 	public DateTime? GiftReadyAtUtc { get; set; }
 	public DateTime CreatedAtUtc { get; set; }
 	public DateTime UpdatedAtUtc { get; set; }

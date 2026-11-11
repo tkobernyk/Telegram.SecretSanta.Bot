@@ -28,12 +28,12 @@ public class ConfirmBudgetHandler : IRequestHandler<ConfirmBudgetRequest, Comman
 		var participant = await _participantRepo.GetByTelegramUserIdAsync(request.EventId, request.TelegramUserId.ToString(), cancellationToken);
 		if (participant == null) return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NotFound, ResponseMessage = "Participant not found." };
 
-		participant.PreferredGiftCategories = request.Accepted ? "Confirmed" : "Rejected";
-		participant.UpdatedAtUtc = System.DateTime.UtcNow;
+		participant.BudgetStatus = request.Accepted ? "Confirmed" : "Rejected";
+		participant.UpdatedAtUtc = DateTime.UtcNow;
 		await _participantRepo.UpdateAsync(participant, cancellationToken);
 
 		var all = (await _participantRepo.GetAllByEventAsync(request.EventId, cancellationToken)).ToList();
-		if (all.All(p => p.PreferredGiftCategories == "Confirmed"))
+		if (all.All(p => p.BudgetStatus == "Confirmed"))
 		{
 			var transitionResponse = await _mediator.Send(new ApplyEventTransitionRequest
 			{

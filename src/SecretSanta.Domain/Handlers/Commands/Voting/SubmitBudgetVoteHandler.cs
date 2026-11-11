@@ -59,7 +59,7 @@ public sealed class SubmitBudgetVoteHandler : IRequestHandler<SubmitBudgetVoteRe
 			OptionId = request.Budget.ToString()
 		};
 		await _voteRepository.CreateVoteAsync(vote, cancellationToken);
-		participant.PreferredGiftCategories = vote.OptionId;
+		participant.BudgetStatus = vote.OptionId;
 		participant.RegistrationStatus = "Voted";
 		participant.UpdatedAtUtc = DateTime.UtcNow;
 		await _participantRepository.UpdateAsync(participant, cancellationToken);

@@ -21,6 +21,7 @@ namespace SecretSanta.Domain.Models
 		public DateTime? GiftReadyAtUtc { get; set; }
 		public DateTime CreatedAtUtc { get; set; }
 		public DateTime UpdatedAtUtc { get; set; }
+		public string BudgetStatus { get; set; } = "NotStarted";
 
 		public ParticipantDto()
 		{

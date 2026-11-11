@@ -90,6 +90,7 @@ public class StartJoinHandler(IParticipantRepository participantRepository, IEve
 			AvoidCategories = string.Empty,
 			PreferredColors = string.Empty,
 			OtherPreferences = string.Empty,
+			BudgetStatus = "NotStarted",
 			RegistrationStatus = "Registered",
 			CreatedAtUtc = DateTime.UtcNow,
 			UpdatedAtUtc = DateTime.UtcNow
