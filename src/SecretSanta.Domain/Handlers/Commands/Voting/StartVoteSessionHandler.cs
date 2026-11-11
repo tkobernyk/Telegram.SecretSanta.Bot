@@ -1,7 +1,9 @@
 using MediatR;
+using SecretSanta.DAL.Abstractions.Repositories;
 using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Enums;
 using SecretSanta.Domain.Handlers.Common;
+using SecretSanta.Domain.Handlers.Commands.Workflow;
 using SecretSanta.Infrastructure.Telegram;
 
 namespace SecretSanta.Domain.Handlers.Commands.Voting;
@@ -9,16 +11,20 @@ namespace SecretSanta.Domain.Handlers.Commands.Voting;
 public class StartVoteSessionHandler : IRequestHandler<StartVoteSessionRequest, CommandResponse>
 {
 	private readonly IVoteService _voteService;
-	private readonly SecretSanta.DAL.Abstractions.IEventRepository _eventRepo;
-	private readonly SecretSanta.DAL.Abstractions.IParticipantRepository _participantRepo;
+	private readonly IEventRepository _eventRepo;
+	private readonly IVoteRepository _voteServiceRepository;
+	private readonly IParticipantRepository _participantRepo;
 	private readonly ITelegramSender _telegramSender;
+	private readonly IMediator _mediator;
 
-	public StartVoteSessionHandler(IVoteService voteService, SecretSanta.DAL.Abstractions.IEventRepository eventRepo, SecretSanta.DAL.Abstractions.IParticipantRepository participantRepo, ITelegramSender telegramSender)
+	public StartVoteSessionHandler(IVoteService voteService, IEventRepository eventRepo, IVoteRepository voteRepository, IParticipantRepository participantRepo, ITelegramSender telegramSender, IMediator mediator)
 	{
 		_voteService = voteService;
 		_eventRepo = eventRepo;
+		_voteServiceRepository = voteRepository;
 		_participantRepo = participantRepo;
 		_telegramSender = telegramSender;
+		_mediator = mediator;
 	}
 
 	public async Task<CommandResponse> Handle(StartVoteSessionRequest request, CancellationToken cancellationToken)
@@ -35,10 +41,26 @@ public class StartVoteSessionHandler : IRequestHandler<StartVoteSessionRequest, 
 			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Для цієї події голосування за бюджет уже недоступне." };
 
 		request.Session.EventId = request.EventId;
-		await _voteService.CreateVoteSessionAsync(request.EventId, request.Session, cancellationToken);
-		ev.CurrentVoteSessionId = request.Session.Id;
-		ev.State = EventWorkflowState.Voting;
-		await _eventRepo.UpdateAsync(ev, cancellationToken);
+		var session = _voteService.PrepareVoteSession(request.Session);
+		var transitionResponse = await _mediator.Send(new ApplyEventTransitionRequest
+		{
+			EventId = request.EventId,
+			Trigger = EventWorkflowTrigger.VoteSessionStarted,
+			ChangedByTelegramId = request.InitiatorTelegramId,
+			Note = "Vote session started"
+		}, cancellationToken);
+		if (transitionResponse.StatusCode != System.Net.HttpStatusCode.OK)
+		{
+			return transitionResponse;
+		}
+
+		await _voteServiceRepository.CreateVoteSessionAsync(session, cancellationToken);
+		var refreshedEvent = await _eventRepo.GetByEventIdAsync(request.EventId, cancellationToken);
+		if (refreshedEvent != null)
+		{
+			refreshedEvent.CurrentVoteSessionId = session.Id;
+			await _eventRepo.UpdateAsync(refreshedEvent, cancellationToken);
+		}
 		var keyboard = new Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup(new[]
 		{
 			new[] { Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("250 грн", "budget:250"), Telegram.Bot.Types.ReplyMarkups.InlineKeyboardButton.WithCallbackData("500 грн", "budget:500") },

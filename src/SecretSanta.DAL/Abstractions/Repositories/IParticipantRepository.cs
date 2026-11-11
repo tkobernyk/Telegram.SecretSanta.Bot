@@ -1,6 +1,6 @@
 using SecretSanta.DAL.Entities;
 
-namespace SecretSanta.DAL.Abstractions;
+namespace SecretSanta.DAL.Abstractions.Repositories;
 
 public interface IParticipantRepository
 {

@@ -1,11 +1,12 @@
 using MediatR;
+using SecretSanta.DAL.Entities;
 using SecretSanta.Domain.Enums;
+using SecretSanta.Domain.Handlers.Commands.Workflow;
 using SecretSanta.Domain.Handlers.Common;
-using SecretSanta.DAL.Abstractions;
-using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Models;
 using SecretSanta.Infrastructure.Telegram;
 using Telegram.Bot.Types.ReplyMarkups;
+using SecretSanta.DAL.Abstractions.Repositories;
 
 namespace SecretSanta.Domain.Handlers.Commands.Participant;
 
@@ -13,15 +14,17 @@ public class MarkReadyHandler : IRequestHandler<MarkReadyRequest, CommandRespons
 {
 	private readonly IParticipantRepository _participantRepo;
 	private readonly IEventRepository _eventRepo;
-	private readonly IPendingUserInputService _pending;
 	private readonly ITelegramSender _telegramSender;
+	private readonly IMediator _mediator;
+	private readonly IUserEventSessionRepository _userEventSessionRepository;
 
-	public MarkReadyHandler(IParticipantRepository participantRepo, IEventRepository eventRepo, IPendingUserInputService pending, ITelegramSender telegramSender)
+	public MarkReadyHandler(IParticipantRepository participantRepo, IEventRepository eventRepo, ITelegramSender telegramSender, IMediator mediator, IUserEventSessionRepository userEventSessionRepository)
 	{
 		_participantRepo = participantRepo;
 		_eventRepo = eventRepo;
-		_pending = pending;
 		_telegramSender = telegramSender;
+		_mediator = mediator;
+		_userEventSessionRepository = userEventSessionRepository;
 	}
 
 	public async Task<CommandResponse> Handle(MarkReadyRequest request, CancellationToken cancellationToken)
@@ -52,13 +55,26 @@ public class MarkReadyHandler : IRequestHandler<MarkReadyRequest, CommandRespons
 		if (all.Count > 0 && all.All(p => string.Equals(p.GiftStatus, GiftStatusValue.Ready, StringComparison.OrdinalIgnoreCase)))
 		{
 			var notifyParticipants = ev.State != EventWorkflowState.AwaitingDelivery;
-			ev.State = EventWorkflowState.AwaitingDelivery;
 			ev.DeliveryRequestedAtUtc ??= DateTime.UtcNow;
 			await _eventRepo.UpdateAsync(ev, cancellationToken);
+
+			var transitionResponse = await _mediator.Send(new ApplyEventTransitionRequest
+			{
+				EventId = request.EventId,
+				Trigger = EventWorkflowTrigger.AllGiftsReady,
+				ChangedByTelegramId = request.TelegramUserId,
+				Note = "All gifts are ready"
+			}, cancellationToken);
+			if (transitionResponse.StatusCode != System.Net.HttpStatusCode.OK)
+			{
+				return transitionResponse;
+			}
+
 			if (notifyParticipants)
 			{
 				var organizerId = ev.OrganizerTelegramId.ToString();
-				_pending.StartConversation(organizerId, new ConversationState { WizardName = "delivery_info" });
+				InteractionStateStore.StartConversation(organizerId, new ConversationState { WizardName = "delivery_info" });
+				await _userEventSessionRepository.UpsertAsync(new UserEventSession { TelegramUserId = organizerId, EventId = request.EventId }, cancellationToken);
 				await _telegramSender.SendMessageAsync(organizerId, "Надішліть одним повідомленням місце й час вручення.");
 				foreach (var eventParticipant in all)
 				{
@@ -68,8 +84,18 @@ public class MarkReadyHandler : IRequestHandler<MarkReadyRequest, CommandRespons
 			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NoContent };
 		}
 
-		ev.State = EventWorkflowState.Preparing;
 		await _eventRepo.UpdateAsync(ev, cancellationToken);
+		var progressTransition = await _mediator.Send(new ApplyEventTransitionRequest
+		{
+			EventId = request.EventId,
+			Trigger = EventWorkflowTrigger.GiftProgressUpdated,
+			ChangedByTelegramId = request.TelegramUserId,
+			Note = "Gift progress updated"
+		}, cancellationToken);
+		if (progressTransition.StatusCode != System.Net.HttpStatusCode.OK)
+		{
+			return progressTransition;
+		}
 		return new CommandResponse
 		{
 			StatusCode = System.Net.HttpStatusCode.OK,
@@ -82,9 +108,9 @@ public class MarkReadyHandler : IRequestHandler<MarkReadyRequest, CommandRespons
 		? new(new[] { new[] { InlineKeyboardButton.WithCallbackData("Ще хочу дещо уточнити", "gift:progress") } })
 		: new(new[]
 		{
-			new[] { InlineKeyboardButton.WithCallbackData("Подарунок вже готовий", "gift:ready") },
-			new[] { InlineKeyboardButton.WithCallbackData("Ще хочу дещо уточнити", "gift:progress") },
-			new[] { InlineKeyboardButton.WithCallbackData("Уточнити в отримувача", "chat:recipient") },
-			new[] { InlineKeyboardButton.WithCallbackData("Написати Secret Santa", "chat:santa") }
+			new[] { InlineKeyboardButton.WithCallbackData("🎁Подарунок вже готовий", "gift:ready") },
+			new[] { InlineKeyboardButton.WithCallbackData("🤔Ще хочу дещо уточнити", "gift:progress") },
+			new[] { InlineKeyboardButton.WithCallbackData("💬Уточнити в Отримувача", "chat:recipient") },
+			new[] { InlineKeyboardButton.WithCallbackData("🎅Написати Миколайкові", "chat:santa") }
 		});
 }

@@ -9,8 +9,8 @@ public class TelegramClientFactory
 
 	public TelegramClientFactory(IConfiguration configuration)
 	{
-		var token = configuration["Values:Telegram__BotToken"];
-		if (string.IsNullOrEmpty(token)) throw new ArgumentException("Telegram__BotToken is required in configuration.");
+		var token = configuration["Telegram:BotToken"];
+		if (string.IsNullOrEmpty(token)) throw new ArgumentException("Telegram:BotToken is required in configuration.");
 		_client = new TelegramBotClient(token);
 	}
 

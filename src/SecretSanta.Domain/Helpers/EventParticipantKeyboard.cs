@@ -16,9 +16,9 @@ public static class EventParticipantKeyboard
 		{
 			return new InlineKeyboardMarkup(new[]
 			{
-				new[] { InlineKeyboardButton.WithCallbackData("Уточнити в отримувача", "chat:recipient") },
-				new[] { InlineKeyboardButton.WithCallbackData("Написати Secret Santa", "chat:santa") },
-				new[] { InlineKeyboardButton.WithCallbackData("Подарунок готовий", "gift:ready") }
+				new[] { InlineKeyboardButton.WithCallbackData("💬Уточнити в отримувача", "chat:recipient") },
+				new[] { InlineKeyboardButton.WithCallbackData("🎅Написати Секретному Миколаю", "chat:santa") },
+				new[] { InlineKeyboardButton.WithCallbackData("🎁Подарунок готовий", "gift:ready") }
 			});
 		}
 

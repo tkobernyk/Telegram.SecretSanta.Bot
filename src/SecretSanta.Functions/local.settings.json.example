@@ -9,6 +9,7 @@
     "Telegram__OrganizerTelegramId": "<organizer-telegram-id>",
 
     "Cosmos__Endpoint": "<cosmos-endpoint>",
+    "Cosmos__Key": "<cosmos-key-base64>",
     "Cosmos__DatabaseName": "SecretSantaDb",
 
     "Groq__ApiKey": "<groq-api-key>",

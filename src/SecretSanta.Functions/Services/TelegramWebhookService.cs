@@ -5,8 +5,10 @@ using System.Text.Json.Serialization;
 using System.Security.Cryptography;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using MediatR;
-using SecretSanta.Domain.Abstractions;
+using SecretSanta.DAL.Abstractions.Repositories;
+using SecretSanta.Domain.Handlers.Common;
 using SecretSanta.Domain.Models;
 using SecretSanta.Domain.Handlers.TelegramEndpoint;
 
@@ -16,16 +18,22 @@ internal class TelegramWebhookService : ITelegramWebhookService
 {
 	readonly ILogger<TelegramWebhookService> _logger;
 	readonly IMediator _mediator;
-	readonly IPendingUserInputService _pending;
+	readonly IUserEventSessionRepository _userEventSessionRepository;
+	readonly IConfiguration _configuration;
 
-	public TelegramWebhookService(ILogger<TelegramWebhookService> logger, IMediator mediator, IPendingUserInputService pending)
+	public TelegramWebhookService(
+		ILogger<TelegramWebhookService> logger,
+		IMediator mediator,
+		IUserEventSessionRepository userEventSessionRepository,
+		IConfiguration configuration)
 	{
 		_logger = logger;
 		_mediator = mediator;
-		_pending = pending;
+		_userEventSessionRepository = userEventSessionRepository;
+		_configuration = configuration;
 	}
 
-	private class TelegramUpdate
+	class TelegramUpdate
 	{
 		[JsonPropertyName("message")]
 		public TelegramMessage? Message { get; set; }
@@ -33,7 +41,7 @@ internal class TelegramWebhookService : ITelegramWebhookService
 		public TelegramCallbackQuery? CallbackQuery { get; set; }
 	}
 
-	private class TelegramCallbackQuery
+	class TelegramCallbackQuery
 	{
 		[JsonPropertyName("from")]
 		public TelegramUser? From { get; set; }
@@ -56,8 +64,20 @@ internal class TelegramWebhookService : ITelegramWebhookService
 			return responseUnauthorized;
 		}
 
-		var provided = Enumerable.FirstOrDefault(values);
-		var expected = Environment.GetEnvironmentVariable("Telegram__WebhookSecret") ?? string.Empty;
+		var provided = Enumerable.FirstOrDefault(values)?.Trim();
+		var expected = (_configuration["Telegram:WebhookSecret"]
+			?? _configuration["Telegram:WebhookSecret"]
+			?? _configuration["Telegram:WebhookSecret"]
+			?? Environment.GetEnvironmentVariable("Telegram__WebhookSecret")
+			?? string.Empty).Trim();
+
+		if (string.IsNullOrWhiteSpace(expected))
+		{
+			_logger.LogWarning("Webhook secret is not configured. Set Telegram__WebhookSecret.");
+			responseUnauthorized.Headers.Add("Content-Type", "text/plain; charset=utf-8");
+			await responseUnauthorized.WriteStringAsync("Unauthorized");
+			return responseUnauthorized;
+		}
 
 		var providedBytes = Encoding.UTF8.GetBytes(provided ?? string.Empty);
 		var expectedBytes = Encoding.UTF8.GetBytes(expected);
@@ -73,7 +93,7 @@ internal class TelegramWebhookService : ITelegramWebhookService
 
 		if (!ok)
 		{
-			_logger.LogWarning("Invalid webhook secret provided.");
+			_logger.LogWarning("Invalid webhook secret provided. ProvidedLength={ProvidedLength}, ExpectedLength={ExpectedLength}", providedBytes.Length, expectedBytes.Length);
 			responseUnauthorized.Headers.Add("Content-Type", "text/plain; charset=utf-8");
 			await responseUnauthorized.WriteStringAsync("Unauthorized");
 			return responseUnauthorized;
@@ -113,10 +133,18 @@ internal class TelegramWebhookService : ITelegramWebhookService
 
 		var defaultEventId = Environment.GetEnvironmentVariable("App__EventId") ?? "default-event";
 		var eventId = defaultEventId;
-		var persistedEventId = await _pending.GetActiveEventIdAsync(sender.Id.ToString());
-		if (!string.IsNullOrWhiteSpace(persistedEventId))
+		if (InteractionStateStore.TryGetActiveEventId(sender.Id.ToString(), out var activeEventId) && !string.IsNullOrWhiteSpace(activeEventId))
 		{
-			eventId = persistedEventId;
+			eventId = activeEventId;
+		}
+		else
+		{
+			var session = await _userEventSessionRepository.GetAsync(sender.Id.ToString());
+			if (!string.IsNullOrWhiteSpace(session?.EventId))
+			{
+				eventId = session.EventId;
+				InteractionStateStore.SetActiveEventId(sender.Id.ToString(), eventId);
+			}
 		}
 
 		var request = new TelegramEndpointRequest

@@ -11,11 +11,17 @@ public class IncomingMessageHandler(IConversationOrchestrator _orchestrator) : I
 		var sender = request.Message?.From?.Id.ToString() ?? string.Empty;
 		var text = request.Message?.Text ?? string.Empty;
 
+		if (string.IsNullOrWhiteSpace(text))
+		{
+			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.OK };
+		}
+
 		var resp = await _orchestrator.HandleIncomingMessageAsync(request.EventId, sender, text, cancellationToken);
-		if (resp != null)
+		if (!string.IsNullOrWhiteSpace(resp))
 		{
 			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.OK, ResponseMessage = resp };
 		}
+
 		return new CommandResponse { StatusCode = System.Net.HttpStatusCode.OK };
 	}
 }

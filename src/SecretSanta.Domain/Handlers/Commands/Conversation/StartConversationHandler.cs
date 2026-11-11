@@ -2,16 +2,26 @@ using MediatR;
 using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Handlers.Common;
 using SecretSanta.Domain.Enums;
-using SecretSanta.DAL.Abstractions;
+using SecretSanta.DAL.Abstractions.Repositories;
 
 namespace SecretSanta.Domain.Handlers.Commands.Conversation;
 
-public class StartConversationHandler(IConversationOrchestrator _orchestrator, IEventService _eventService, IAssignmentRepository _assignmentRepository) : IRequestHandler<StartConversationRequest, CommandResponse>
+public class StartConversationHandler(IConversationOrchestrator _orchestrator, IEventRepository _eventRepository, IAssignmentRepository _assignmentRepository) : IRequestHandler<StartConversationRequest, CommandResponse>
 {
 	public async Task<CommandResponse> Handle(StartConversationRequest request, CancellationToken cancellationToken)
 	{
 		// Only allow after assignments are published
-		var state = await _eventService.GetEventStateAsync(request.EventId, cancellationToken);
+		var eventEntity = await _eventRepository.GetByEventIdAsync(request.EventId, cancellationToken);
+		if (eventEntity == null)
+		{
+			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NotFound, ResponseMessage = "Подію не знайдено." };
+		}
+
+		if (!Enum.TryParse<EventState>(eventEntity.State, true, out var state))
+		{
+			state = EventState.Registration;
+		}
+
 		if (state != EventState.Draft && state != EventState.Preparing && state != EventState.AwaitingDelivery && state != EventState.Done && state != EventState.Completed)
 		{
 			return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Команди доступні лише після завершення жеребкування." };
@@ -31,7 +41,7 @@ public class StartConversationHandler(IConversationOrchestrator _orchestrator, I
 				santaId = assignment?.SantaTelegramUserId;
 				if (santaId == null)
 				{
-					return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Секретний Санта не знайдений для вас." };
+					return new CommandResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Секретний Миколайко не знайдений для вас." };
 				}
 				recipientId = initiatorId;
 				break;

@@ -1,4 +1,5 @@
 using SecretSanta.DAL.Abstractions;
+using SecretSanta.DAL.Abstractions.Repositories;
 using SecretSanta.DAL.Entities;
 
 namespace SecretSanta.DAL.Repositories;

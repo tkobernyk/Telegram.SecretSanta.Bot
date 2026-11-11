@@ -41,12 +41,14 @@ internal static class Program
 				services.AddTransient<ITelegramWebhookService, TelegramWebhookService>();
 
 				var cfg = context.Configuration;
-				string GetCfg(string key) => cfg[key] ?? cfg[$"Values:{key}"] ?? string.Empty;
+				string GetCfg(string key) => cfg[key] ?? cfg[$"{key}"] ?? string.Empty;
 				var missing = new List<string>();
-				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__BotToken"))) missing.Add("Telegram__BotToken");
-				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__WebhookSecret"))) missing.Add("Telegram__WebhookSecret");
-				if (string.IsNullOrWhiteSpace(GetCfg("Telegram__OrganizerTelegramId"))) missing.Add("Telegram__OrganizerTelegramId");
-				if (string.IsNullOrWhiteSpace(GetCfg("Groq__ApiKey")) && string.IsNullOrWhiteSpace(GetCfg("Groq:ApiKey"))) missing.Add("Groq__ApiKey");
+				if (string.IsNullOrWhiteSpace(GetCfg("Telegram:BotToken"))) missing.Add("Telegram__BotToken");
+				if (string.IsNullOrWhiteSpace(GetCfg("Telegram:WebhookSecret"))) missing.Add("Telegram__WebhookSecret");
+				if (string.IsNullOrWhiteSpace(GetCfg("Telegram:OrganizerTelegramId"))) missing.Add("Telegram__OrganizerTelegramId");
+				if (string.IsNullOrWhiteSpace(GetCfg("Cosmos:Endpoint"))) missing.Add("Cosmos__Endpoint");
+				if (string.IsNullOrWhiteSpace(GetCfg("Cosmos:Key"))) missing.Add("Cosmos__Key");
+				if (string.IsNullOrWhiteSpace(GetCfg("Cosmos:DatabaseName"))) missing.Add("Cosmos__DatabaseName");
 
 				if (missing.Count > 0)
 				{

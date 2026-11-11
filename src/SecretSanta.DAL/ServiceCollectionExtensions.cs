@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SecretSanta.DAL.Abstractions;
+using SecretSanta.DAL.Abstractions.Repositories;
 using SecretSanta.DAL.Cosmos;
 using SecretSanta.DAL.Repositories;
 

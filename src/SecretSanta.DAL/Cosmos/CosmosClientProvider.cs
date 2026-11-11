@@ -10,22 +10,43 @@ public sealed class CosmosClientProvider
 
 	public CosmosClientProvider(IConfiguration configuration)
 	{
-		var cosmosConfig = new CosmosConfiguration();
-		configuration.GetSection(CosmosConfiguration.SectionName).Bind(cosmosConfig);
+		string GetSetting(string colonKey, string doubleUnderscoreKey)
+			=> configuration[colonKey]
+				?? configuration[doubleUnderscoreKey]
+				?? configuration[$"{doubleUnderscoreKey}"]
+				?? string.Empty;
 
-		var endpoint = cosmosConfig.Endpoint;
-		var key = cosmosConfig.Key;
-		_databaseName = cosmosConfig.DatabaseName;
-		var applicationName = cosmosConfig.ApplicationName;
-
-		if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(key))
+		var endpoint = GetSetting("Cosmos:Endpoint", "Cosmos__Endpoint");
+		var key = GetSetting("Cosmos:Key", "Cosmos__Key");
+		_databaseName = GetSetting("Cosmos:DatabaseName", "Cosmos__DatabaseName");
+		var applicationName = GetSetting("Cosmos:ApplicationName", "Cosmos__ApplicationName");
+		if (string.IsNullOrWhiteSpace(applicationName))
 		{
-			throw new ArgumentException("Cosmos__Endpoint and Cosmos__Key configuration values are required to create CosmosClient.");
+			applicationName = "SecretSanta";
 		}
 
-		if (string.IsNullOrEmpty(_databaseName))
+		if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(key))
+		{
+			throw new ArgumentException("Cosmos:Endpoint and Cosmos:Key configuration values are required to create CosmosClient.");
+		}
+
+		if (endpoint.StartsWith("<", StringComparison.Ordinal) || key.StartsWith("<", StringComparison.Ordinal))
+		{
+			throw new ArgumentException("Cosmos configuration contains placeholder values. Set real Cosmos__Endpoint and Cosmos__Key.");
+		}
+
+		if (string.IsNullOrWhiteSpace(_databaseName))
 		{
 			throw new ArgumentException("Cosmos__DatabaseName configuration value is required to create CosmosClient.");
+		}
+
+		try
+		{
+			Convert.FromBase64String(key);
+		}
+		catch (FormatException ex)
+		{
+			throw new ArgumentException("Cosmos__Key is not a valid Base64 Cosmos DB key.", ex);
 		}
 
 		_client = new CosmosClient(endpoint, key, new CosmosClientOptions

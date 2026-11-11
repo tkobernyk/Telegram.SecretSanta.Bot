@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
 using NSubstitute;
 using MediatR;
-using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
 using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Enums;
@@ -12,12 +11,17 @@ using SecretSanta.Domain.Handlers.Commands.Conversation;
 using SecretSanta.Domain.Handlers.Commands.Participant;
 using SecretSanta.Domain.Handlers.Commands.Start;
 using SecretSanta.Domain.Handlers.Commands.Voting;
+using SecretSanta.Domain.Handlers.Commands.Workflow;
 using SecretSanta.Domain.Handlers.TelegramEndpoint;
 using SecretSanta.Domain.Models;
+using SecretSanta.Domain.Models.Workflow;
 using SecretSanta.Domain.Services;
+using SecretSanta.Domain.Services.Workflow;
+using SecretSanta.Domain.Services.Workflow.Rules;
 using SecretSanta.Infrastructure.AI;
 using SecretSanta.Infrastructure.Telegram;
 using Telegram.Bot.Types.ReplyMarkups;
+using SecretSanta.DAL.Abstractions.Repositories;
 
 namespace SecretSanta.Domain.Tests;
 
@@ -40,8 +44,9 @@ public class SecretSantaWorkflowTests
 		var textGeneration = new FakeTextGenerationService();
 		var conversationRepo = new FakeConversationRepository();
 		var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Conversation:TimeoutMinutes"] = "60" }).Build();
-		var voteService = new VoteService(voteRepo, participantRepo, eventRepo);
-		var orchestrator = new ConversationOrchestrator(textGeneration, pending, telegram, participantService, new FakeWizardRegistry(), conversationRepo, config, NullLogger<ConversationOrchestrator>.Instance);
+		var voteService = new VoteService();
+		var transitionMediator = new FakeTransitionMediator(eventRepo);
+		var orchestrator = new ConversationOrchestrator(textGeneration, telegram, participantService, new FakeWizardRegistry(), conversationRepo, config, NullLogger<ConversationOrchestrator>.Instance);
 		var startCreateHandler = new StartCreateHandler(participantService, eventRepo, pending);
 		var organizerId = "100";
 		var organizerCreate = await startCreateHandler.Handle(new StartCreateRequest { EventId = "evt-full", TelegramUserId = organizerId, DisplayName = "Organizer" }, CancellationToken.None);
@@ -79,12 +84,12 @@ public class SecretSantaWorkflowTests
 			InitiatorTelegramId = 100,
 			Session = new VoteSession { EventId = eventEntity.EventId }
 		};
-		var startVoteHandler = new StartVoteSessionHandler(voteService, eventRepo, participantRepo, telegram);
+		var startVoteHandler = new StartVoteSessionHandler(voteService, eventRepo, voteRepo, participantRepo, telegram, transitionMediator);
 		var startVoteResponse = await startVoteHandler.Handle(organizerVoteRequest, CancellationToken.None);
 		Assert.That(startVoteResponse.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.OK));
 		Assert.That(eventStore[eventEntity.EventId].State, Is.EqualTo(EventWorkflowState.Voting));
 
-		var submitVoteHandler = new SubmitBudgetVoteHandler(eventRepo, participantRepo, voteService, assignmentRepo, new DraftService(participantRepo, assignmentRepo, eventRepo), telegram);
+		var submitVoteHandler = new SubmitBudgetVoteHandler(eventRepo, participantRepo, voteRepo, voteService, assignmentRepo, new DraftService(), transitionMediator, telegram);
 		var firstRoundVotes = new Dictionary<long, long>
 		{
 			[100] = 500,
@@ -103,7 +108,7 @@ public class SecretSantaWorkflowTests
 		Assert.That(eventStore[eventEntity.EventId].State, Is.EqualTo(EventWorkflowState.BudgetDiscussion));
 
 		var secondSession = new VoteSession { Id = "vote-round-2", EventId = eventEntity.EventId, Options = new List<VoteOption> { new() { Id = "250", Label = "250 грн", Value = 250 }, new() { Id = "500", Label = "500 грн", Value = 500 }, new() { Id = "750", Label = "750 грн", Value = 750 } } };
-		await voteService.CreateVoteSessionAsync(eventEntity.EventId, secondSession, CancellationToken.None);
+		await startVoteHandler.Handle(new StartVoteSessionRequest { EventId = eventEntity.EventId, InitiatorTelegramId = 100, Session = secondSession }, CancellationToken.None);
 		foreach (var userId in new[] { 100L, 101L, 102L, 103L, 104L, 105L, 106L })
 		{
 			var res = await submitVoteHandler.Handle(new SubmitBudgetVoteRequest { EventId = eventEntity.EventId, TelegramUserId = userId, Budget = 500 }, CancellationToken.None);
@@ -118,8 +123,7 @@ public class SecretSantaWorkflowTests
 		var recipientId = firstAssignment.RecipientTelegramUserId.ToString();
 		await orchestrator.StartConversationAsync(eventEntity.EventId, santaId, recipientId, santaId, CancellationToken.None);
 		Assert.That(conversationRepo.Created.Count, Is.EqualTo(1));
-		Assert.That(textGeneration.LastPrompt, Does.Contain("Вішліст отримувача"));
-		Assert.That(textGeneration.LastPrompt, Does.Contain("українською"));
+		Assert.That(textGeneration.LastPrompt, Is.EqualTo(string.Empty));
 
 		var cancelHandler = new CancelConversationHandler(orchestrator);
 		await cancelHandler.Handle(new CancelConversationRequest { EventId = eventEntity.EventId, InitiatorTelegramUserId = recipientId }, CancellationToken.None);
@@ -128,9 +132,9 @@ public class SecretSantaWorkflowTests
 			telegram.SentMessages.Where(m => m.Text.Contains("Діалог завершено."))
 				.All(m => HasPostConversationActions(m.Markup)),
 			Is.True);
-		Assert.That(telegram.Messages.Count(m => m.Text.Contains("Діалог завершено.")), Is.EqualTo(2));
+		Assert.That(telegram.Messages.Count(m => m.Text.Contains("Діалог завершено")), Is.EqualTo(2));
 
-		var readyHandler = new MarkReadyHandler(participantRepo, eventRepo, pending, telegram);
+		var readyHandler = new MarkReadyHandler(participantRepo, eventRepo, telegram, transitionMediator, pending);
 		var participants = (await participantRepo.GetAllByEventAsync(eventEntity.EventId, CancellationToken.None)).ToList();
 		for (var index = 0; index < participants.Count; index++)
 		{
@@ -141,7 +145,7 @@ public class SecretSantaWorkflowTests
 				: System.Net.HttpStatusCode.OK));
 		}
 		Assert.That(eventStore[eventEntity.EventId].State, Is.EqualTo(EventWorkflowState.AwaitingDelivery));
-		Assert.That(pending.TryGetConversation(eventEntity.OrganizerTelegramId.ToString(), out var state), Is.True);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation(eventEntity.OrganizerTelegramId.ToString(), out var state), Is.True);
 		Assert.That(state, Is.Not.Null);
 		var deliveryState = state!;
 		Assert.That(deliveryState.WizardName, Is.EqualTo("delivery_info"));
@@ -156,7 +160,7 @@ public class SecretSantaWorkflowTests
 		await eventRepo.UpdateAsync(eventEntity, CancellationToken.None);
 		foreach (var participant in await participantRepo.GetAllByEventAsync(eventEntity.EventId, CancellationToken.None))
 		{
-			await telegram.SendMessageAsync(participant.TelegramUserId, $"Місце й час вручення Secret Santa: {deliveryText}");
+			await telegram.SendMessageAsync(participant.TelegramUserId, $"Місце й час вручення Секретного Миколайка: {deliveryText}");
 		}
 		Assert.That(telegram.Messages.Any(m => m.UserId == "101" && m.Text.Contains(deliveryText)), Is.True);
 		Assert.That(telegram.Messages.Any(m => m.UserId == "106" && m.Text.Contains(deliveryText)), Is.True);
@@ -272,7 +276,7 @@ public class SecretSantaWorkflowTests
 		Assert.That(response.ResponseMessage, Is.EqualTo("Виберіть дію:"));
 		Assert.That(response.ReplyMarkup, Is.Not.Null);
 		Assert.That(participantStore, Is.Empty);
-		Assert.That(pending.TryGetConversation("777", out var state), Is.True);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("777", out var state), Is.True);
 		Assert.That(state, Is.Not.Null);
 		Assert.That(state!.WizardName, Is.EqualTo("start_event"));
 	}
@@ -309,7 +313,7 @@ public class SecretSantaWorkflowTests
 		var pending = new PendingUserInputService();
 		var handler = new StartHandler(participantService, repo, pending);
 		var from = new TelegramUser { Id = 202, FirstName = "AutoReg", Username = "autoreg" };
-		pending.StartConversation("202", new ConversationState { WizardName = "start_event", StepIndex = 0 });
+		InteractionStateStoreProxy.StartConversation("202", new ConversationState { WizardName = "start_event", StepIndex = 0 });
 
 		var response = await handler.Handle(new StartRequest
 		{
@@ -320,7 +324,7 @@ public class SecretSantaWorkflowTests
 		var eventEntity = eventStore.Values.Single();
 		Assert.That(response.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.Created));
 		Assert.That(participantStore.Values.Count(p => p.EventId == eventEntity.EventId && p.TelegramUserId == "202"), Is.EqualTo(1));
-		Assert.That(pending.TryGetConversation("202", out _), Is.False);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("202", out _), Is.False);
 		Assert.That(pending.TryGetActiveEventId("202", out var activeEventId), Is.True);
 		Assert.That(activeEventId, Is.EqualTo(eventEntity.EventId));
 	}
@@ -361,7 +365,7 @@ public class SecretSantaWorkflowTests
 		var eventEntity = new Event { EventId = "evt-join-flow", Name = "Join Event", JoinCode = "JOIN4321", OrganizerTelegramId = 999, CreatedByTelegramId = 999, State = EventWorkflowState.Registration };
 		await repo.CreateAsync(eventEntity);
 		var from = new TelegramUser { Id = 303, FirstName = "Joiner", Username = "joiner" };
-		pending.StartConversation("303", new ConversationState { WizardName = "start_event", StepIndex = 0 });
+		InteractionStateStoreProxy.StartConversation("303", new ConversationState { WizardName = "start_event", StepIndex = 0 });
 
 		var prompt = await handler.Handle(new StartRequest
 		{
@@ -370,7 +374,7 @@ public class SecretSantaWorkflowTests
 		}, CancellationToken.None);
 
 		Assert.That(prompt.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.OK));
-		Assert.That(pending.TryGetConversation("303", out var joinState), Is.True);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("303", out var joinState), Is.True);
 		Assert.That(joinState?.StepIndex, Is.EqualTo(1));
 
 		var joined = await handler.Handle(new StartRequest
@@ -381,7 +385,7 @@ public class SecretSantaWorkflowTests
 
 		Assert.That(joined.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.Created));
 		Assert.That(participantStore.Values.Count(p => p.EventId == eventEntity.EventId && p.TelegramUserId == "303"), Is.EqualTo(1));
-		Assert.That(pending.TryGetConversation("303", out _), Is.False);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("303", out _), Is.False);
 		Assert.That(pending.TryGetActiveEventId("303", out var activeEventId), Is.True);
 		Assert.That(activeEventId, Is.EqualTo(eventEntity.EventId));
 	}
@@ -465,7 +469,7 @@ public class SecretSantaWorkflowTests
 		var repo = new FakeEventRepository(eventStore);
 		var participantRepo = new FakeParticipantRepository(participantStore);
 		var assignmentRepo = new FakeAssignmentRepository(assignmentStore);
-		var draftService = new DraftService(participantRepo, assignmentRepo, repo);
+		var draftService = new DraftService();
 		var eventEntity = new Event { EventId = "evt-4", Name = "Secret Santa", JoinCode = "DRAFT1", OrganizerTelegramId = 301, CreatedByTelegramId = 301, State = "Registration" };
 		await repo.CreateAsync(eventEntity);
 
@@ -482,7 +486,8 @@ public class SecretSantaWorkflowTests
 			};
 		}
 
-		await draftService.StartDraftAsync(eventEntity.EventId, eventEntity.OrganizerTelegramId, CancellationToken.None);
+		var generatedAssignments = draftService.BuildAssignments(eventEntity.EventId, userIds);
+		await assignmentRepo.CreateAssignmentsAsync(generatedAssignments, CancellationToken.None);
 		var assignments = assignmentStore.Values.Where(a => a.EventId == eventEntity.EventId).ToList();
 
 		Assert.That(assignments.Count, Is.EqualTo(userIds.Length));
@@ -506,7 +511,7 @@ public class SecretSantaWorkflowTests
 		var eventRepo = new FakeEventRepository(eventStore);
 		var participantRepo = new FakeParticipantRepository(participantStore);
 		var voteRepo = new FakeVoteRepository(voteStore);
-		var voteService = new VoteService(voteRepo, participantRepo, eventRepo);
+		var voteService = new VoteService();
 
 		var eventEntity = new Event { EventId = "evt-5", Name = "Secret Santa", JoinCode = "VOTE1", OrganizerTelegramId = 401, CreatedByTelegramId = 401, State = "Voting" };
 		await eventRepo.CreateAsync(eventEntity);
@@ -521,15 +526,16 @@ public class SecretSantaWorkflowTests
 				new() { Id = "budget-30", Label = "30", Value = 30 }
 			}
 		};
-		await voteService.CreateVoteSessionAsync(eventEntity.EventId, session, CancellationToken.None);
+		var preparedSession = voteService.PrepareVoteSession(session);
+		await voteRepo.CreateVoteSessionAsync(preparedSession, CancellationToken.None);
 
-		await voteService.SubmitVoteAsync(eventEntity.EventId, session.Id, new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 401, OptionId = "budget-10" }, CancellationToken.None);
-		await voteService.SubmitVoteAsync(eventEntity.EventId, session.Id, new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 402, OptionId = "budget-10" }, CancellationToken.None);
-		await voteService.SubmitVoteAsync(eventEntity.EventId, session.Id, new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 403, OptionId = "budget-20" }, CancellationToken.None);
-		await voteService.SubmitVoteAsync(eventEntity.EventId, session.Id, new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 404, OptionId = "budget-20" }, CancellationToken.None);
-		await voteService.SubmitVoteAsync(eventEntity.EventId, session.Id, new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 405, OptionId = "budget-20" }, CancellationToken.None);
+		await voteRepo.CreateVoteAsync(new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 401, OptionId = "budget-10" }, CancellationToken.None);
+		await voteRepo.CreateVoteAsync(new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 402, OptionId = "budget-10" }, CancellationToken.None);
+		await voteRepo.CreateVoteAsync(new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 403, OptionId = "budget-20" }, CancellationToken.None);
+		await voteRepo.CreateVoteAsync(new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 404, OptionId = "budget-20" }, CancellationToken.None);
+		await voteRepo.CreateVoteAsync(new Vote { EventId = eventEntity.EventId, VoteSessionId = session.Id, VoterTelegramId = 405, OptionId = "budget-20" }, CancellationToken.None);
 
-		var result = await voteService.AggregateResultAsync(eventEntity.EventId, session.Id, CancellationToken.None);
+		var result = voteService.EvaluateBudgetVotes(await voteRepo.GetVotesForSessionAsync(eventEntity.EventId, session.Id, CancellationToken.None), 0).OptionId;
 		Assert.That(result, Is.EqualTo("budget-20"));
 	}
 
@@ -541,7 +547,8 @@ public class SecretSantaWorkflowTests
 		var eventRepo = new FakeEventRepository(eventStore);
 		var participantRepo = new FakeParticipantRepository(participantStore);
 		var voteRepo = new FakeVoteRepository();
-		var voteService = new VoteService(voteRepo, participantRepo, eventRepo);
+		var voteService = new VoteService();
+		var transitionMediator = new FakeTransitionMediator(eventRepo);
 		var telegram = new FakeTelegramSender();
 		var eventEntity = new Event
 		{
@@ -563,7 +570,7 @@ public class SecretSantaWorkflowTests
 				RegistrationStatus = "Registered"
 			};
 		}
-		var handler = new StartVoteSessionHandler(voteService, eventRepo, participantRepo, telegram);
+		var handler = new StartVoteSessionHandler(voteService, eventRepo, voteRepo, participantRepo, telegram, transitionMediator);
 
 		var response = await handler.Handle(new StartVoteSessionRequest
 		{
@@ -586,11 +593,12 @@ public class SecretSantaWorkflowTests
 		var eventRepo = new FakeEventRepository(eventStore);
 		var participantRepo = new FakeParticipantRepository(participantStore);
 		var voteRepo = new FakeVoteRepository();
-		var voteService = new VoteService(voteRepo, participantRepo, eventRepo);
+		var voteService = new VoteService();
+		var transitionMediator = new FakeTransitionMediator(eventRepo);
 		var eventEntity = new Event { EventId = "evt-start-vote-1", OrganizerTelegramId = 910, State = EventWorkflowState.Registration };
 		await eventRepo.CreateAsync(eventEntity);
 		participantStore[$"{eventEntity.EventId}:910"] = new Participant { EventId = eventEntity.EventId, TelegramUserId = "910", DisplayName = "Organizer" };
-		var handler = new StartVoteSessionHandler(voteService, eventRepo, participantRepo, new FakeTelegramSender());
+		var handler = new StartVoteSessionHandler(voteService, eventRepo, voteRepo, participantRepo, new FakeTelegramSender(), transitionMediator);
 
 		var response = await handler.Handle(new StartVoteSessionRequest
 		{
@@ -615,10 +623,11 @@ public class SecretSantaWorkflowTests
 		var participantRepo = new FakeParticipantRepository(participantStore);
 		var assignmentRepo = new FakeAssignmentRepository(assignmentStore);
 		var voteRepo = new FakeVoteRepository(voteStore);
-		var voteService = new VoteService(voteRepo, participantRepo, eventRepo);
-		var draftService = new DraftService(participantRepo, assignmentRepo, eventRepo);
+		var voteService = new VoteService();
+		var draftService = new DraftService();
+		var transitionMediator = new FakeTransitionMediator(eventRepo);
 		var telegram = new FakeTelegramSender();
-		var handler = new SubmitBudgetVoteHandler(eventRepo, participantRepo, voteService, assignmentRepo, draftService, telegram);
+		var handler = new SubmitBudgetVoteHandler(eventRepo, participantRepo, voteRepo, voteService, assignmentRepo, draftService, transitionMediator, telegram);
 
 		var eventEntity = new Event { EventId = "evt-6", Name = "Secret Santa", JoinCode = "BUDGET1", OrganizerTelegramId = 500, CreatedByTelegramId = 500, State = "Registration" };
 		await eventRepo.CreateAsync(eventEntity);
@@ -649,7 +658,9 @@ public class SecretSantaWorkflowTests
 				new() { Id = "1500", Value = 1500 }
 			}
 		};
-		await voteService.CreateVoteSessionAsync(eventEntity.EventId, session, CancellationToken.None);
+		var startVoteResult = await new StartVoteSessionHandler(voteService, eventRepo, voteRepo, participantRepo, telegram, transitionMediator)
+			.Handle(new StartVoteSessionRequest { EventId = eventEntity.EventId, InitiatorTelegramId = eventEntity.OrganizerTelegramId, Session = session }, CancellationToken.None);
+		Assert.That(startVoteResult.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.OK));
 
 		var first = await handler.Handle(new SubmitBudgetVoteRequest { EventId = eventEntity.EventId, TelegramUserId = 500, Budget = 500 }, CancellationToken.None);
 		Assert.That(first.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.OK));
@@ -661,14 +672,14 @@ public class SecretSantaWorkflowTests
 
 		Assert.That(eventStore[eventEntity.EventId].State, Is.EqualTo("Draft"));
 		Assert.That(assignmentStore.Values.Count(a => a.EventId == eventEntity.EventId), Is.EqualTo(3));
-		Assert.That(telegram.Messages.Any(m => m.Text.Contains("Ваш отримувач") && m.Text.Contains("Вішліст:")), Is.True);
-		Assert.That(telegram.SentMessages.Count, Is.EqualTo(3));
-		Assert.That(telegram.SentMessages.Select(m => m.UserId).Distinct().Count(), Is.EqualTo(3));
+		Assert.That(telegram.Messages.Any(m => m.Text.Contains("Ваш отримувач") && m.Text.Contains("Список побажань:")), Is.True);
+		Assert.That(telegram.SentMessages.Count(m => m.Text.Contains("Ваш отримувач") && m.Text.Contains("Список побажань:")), Is.EqualTo(3));
+		Assert.That(telegram.SentMessages.Where(m => m.Text.Contains("Ваш отримувач") && m.Text.Contains("Список побажань:")).Select(m => m.UserId).Distinct().Count(), Is.EqualTo(3));
 
 		var replay = await handler.Handle(new SubmitBudgetVoteRequest { EventId = eventEntity.EventId, TelegramUserId = 502, Budget = 500 }, CancellationToken.None);
 		Assert.That(replay.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.NoContent));
 		Assert.That(replay.ResponseMessage, Is.Null);
-		Assert.That(telegram.SentMessages.Count, Is.EqualTo(3));
+		Assert.That(telegram.SentMessages.Count(m => m.Text.Contains("Ваш отримувач") && m.Text.Contains("Список побажань:")), Is.EqualTo(3));
 	}
 
 	[TestCase(EventWorkflowState.Registration, new[] { "profile:view", "wishlist:edit" })]
@@ -687,25 +698,25 @@ public class SecretSantaWorkflowTests
 
 		var response = await handler.Handle(new StartJoinRequest { EventId = "ignored", TelegramUserId = "901", JoinCode = ev.JoinCode }, CancellationToken.None);
 
-		Assert.That(response.ResponseMessage, Is.EqualTo("Ви вже приєднані до цього Secret Santa."));
+		Assert.That(response.ResponseMessage, Is.EqualTo("Ви вже приєднані до цієї події Секретного Миколайка."));
 		var keyboard = response.ReplyMarkup as Telegram.Bot.Types.ReplyMarkups.InlineKeyboardMarkup;
 		Assert.That(keyboard, Is.Not.Null);
 		Assert.That(keyboard!.InlineKeyboard.SelectMany(row => row).Select(button => button.CallbackData), Is.EqualTo(expectedCallbacks));
-		Assert.That(pending.TryGetConversation("901", out _), Is.False);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("901", out _), Is.False);
 	}
 
 	[Test]
 	public async Task StartWizardMessage_IsNotAlsoHandledAsAnonymousChatMessage()
 	{
 		var pending = new PendingUserInputService();
-		pending.StartConversation("901", new ConversationState { WizardName = "start_event", StepIndex = 1 });
+		InteractionStateStoreProxy.StartConversation("901", new ConversationState { WizardName = "start_event", StepIndex = 1 });
 		var mediator = Substitute.For<IMediator>();
 		mediator.Send(Arg.Any<StartRequest>(), Arg.Any<CancellationToken>())
 			.Returns(new StartResponse { ResponseMessage = "Ви вже приєднані до цього Secret Santa." });
 		var telegram = new FakeTelegramSender();
 		var eventRepo = new FakeEventRepository(new ConcurrentDictionary<string, Event>());
 		var participantRepo = new FakeParticipantRepository(new ConcurrentDictionary<string, Participant>());
-		var handler = new TelegramEndpointHandler(mediator, telegram, pending, eventRepo, participantRepo);
+		var handler = new TelegramEndpointHandler(mediator, telegram, eventRepo, participantRepo);
 
 		await handler.Handle(new TelegramEndpointRequest
 		{
@@ -728,7 +739,8 @@ public class SecretSantaWorkflowTests
 		var participantRepo = new FakeParticipantRepository(participantStore);
 		var pending = new PendingUserInputService();
 		var telegram = new FakeTelegramSender();
-		var handler = new MarkReadyHandler(participantRepo, eventRepo, pending, telegram);
+		var transitionMediator = new FakeTransitionMediator(eventRepo);
+		var handler = new MarkReadyHandler(participantRepo, eventRepo, telegram, transitionMediator, pending);
 
 		var eventEntity = new Event { EventId = "evt-7", Name = "Secret Santa", JoinCode = "READY1", OrganizerTelegramId = 700, CreatedByTelegramId = 700, State = "Preparing" };
 		await eventRepo.CreateAsync(eventEntity);
@@ -764,7 +776,7 @@ public class SecretSantaWorkflowTests
 		}
 
 		Assert.That(eventStore[eventEntity.EventId].State, Is.EqualTo("AwaitingDelivery"));
-		Assert.That(pending.TryGetConversation("700", out var state), Is.True);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("700", out var state), Is.True);
 		Assert.That(state!.WizardName, Is.EqualTo("delivery_info"));
 		Assert.That(telegram.Messages.Any(m => m.UserId == "700" && m.Text.Contains("місце й час вручення")), Is.True);
 		foreach (var userId in new[] { "700", "701", "702" })
@@ -787,7 +799,7 @@ public class SecretSantaWorkflowTests
 		var textGeneration = new FakeTextGenerationService();
 		var conversationRepo = new FakeConversationRepository();
 		var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Conversation:TimeoutMinutes"] = "60" }).Build();
-		var orchestrator = new ConversationOrchestrator(textGeneration, pending, telegram, participantService, new FakeWizardRegistry(), conversationRepo, config, NullLogger<ConversationOrchestrator>.Instance);
+		var orchestrator = new ConversationOrchestrator(textGeneration, telegram, participantService, new FakeWizardRegistry(), conversationRepo, config, NullLogger<ConversationOrchestrator>.Instance);
 
 		var eventEntity = new Event { EventId = "evt-8", Name = "Secret Santa", JoinCode = "AI1", OrganizerTelegramId = 800, CreatedByTelegramId = 800, State = "Draft" };
 		await repo.CreateAsync(eventEntity);
@@ -796,25 +808,22 @@ public class SecretSantaWorkflowTests
 
 		await orchestrator.StartConversationAsync(eventEntity.EventId, "800", "801", "800", CancellationToken.None);
 
-		Assert.That(textGeneration.LastPrompt, Does.Contain("Вішліст отримувача"));
-		Assert.That(textGeneration.LastPrompt, Does.Contain("українською"));
-		Assert.That(telegram.Messages.Any(m => m.UserId == "801" && m.Text.Contains("Книга про космос") == false), Is.True);
-		Assert.That(telegram.SentMessages.First().Text, Does.Contain("Пробую зв’язатися з AI-помічником Санти"));
-		Assert.That(telegram.SentMessages.First().Markup, Is.Null);
-		Assert.That(telegram.SentMessages.Count(m => m.UserId == "800" && m.Text.Contains("Пробую зв’язатися з AI-помічником Санти")), Is.EqualTo(1));
-		Assert.That(telegram.SentMessages.Any(m => m.UserId == "801" && m.Text.Contains("Пробую зв’язатися з AI-помічником Санти")), Is.False);
-		Assert.That(telegram.SentMessages.Any(m => m.Text.Contains("AI-помічник на зв’язку")), Is.True);
+		Assert.That(textGeneration.LastPrompt, Is.EqualTo(string.Empty));
+		Assert.That(telegram.SentMessages.First().Text, Does.Contain("Що ви хочете запитати?"));
+		Assert.That(telegram.SentMessages.First().Markup, Is.Not.Null);
+		Assert.That(HasEndConversationButton(telegram.SentMessages.First().Markup), Is.True);
+		Assert.That(telegram.SentMessages.Count(m => m.UserId == "800" && m.Text.Contains("Що ви хочете запитати?")), Is.EqualTo(1));
+		Assert.That(telegram.SentMessages.Any(m => m.UserId == "801" && m.Text.Contains("Що ви хочете запитати?")), Is.False);
 		Assert.That(conversationRepo.Created.Count, Is.EqualTo(1));
-		Assert.That(telegram.SentMessages.Where(m => m.UserId is "800" or "801").All(m => m.Markup == null), Is.True);
-		var santaState = pending.TryGetConversation("800", out var santaConversation) ? santaConversation : null;
-		var recipientState = pending.TryGetConversation("801", out var recipientConversation) ? recipientConversation : null;
+		var santaState = InteractionStateStoreProxy.TryGetConversation("800", out var santaConversation) ? santaConversation : null;
+		var recipientState = InteractionStateStoreProxy.TryGetConversation("801", out var recipientConversation) ? recipientConversation : null;
 		Assert.That(santaState?.WizardName, Is.EqualTo("santa_dialog"));
 		Assert.That(recipientState?.WizardName, Is.EqualTo("santa_dialog"));
 
 		await orchestrator.EndConversationAsync(eventEntity.EventId, "800", CancellationToken.None);
 		Assert.That(conversationRepo.Created.Single().Status, Is.EqualTo("Closed"));
-		Assert.That(pending.TryGetConversation("800", out _), Is.False);
-		Assert.That(pending.TryGetConversation("801", out _), Is.False);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("800", out _), Is.False);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("801", out _), Is.False);
 	}
 
 	[Test]
@@ -828,29 +837,19 @@ public class SecretSantaWorkflowTests
 		var textGeneration = new UnavailableTextGenerationService();
 		var conversationRepo = new FakeConversationRepository();
 		var config = new ConfigurationBuilder().AddInMemoryCollection().Build();
-		var orchestrator = new ConversationOrchestrator(textGeneration, pending, telegram, participantService, new FakeWizardRegistry(), conversationRepo, config, NullLogger<ConversationOrchestrator>.Instance);
+		var orchestrator = new ConversationOrchestrator(textGeneration, telegram, participantService, new FakeWizardRegistry(), conversationRepo, config, NullLogger<ConversationOrchestrator>.Instance);
 		participantStore["evt-direct:800"] = new Participant { EventId = "evt-direct", TelegramUserId = "800", DisplayName = "Santa" };
 		participantStore["evt-direct:801"] = new Participant { EventId = "evt-direct", TelegramUserId = "801", DisplayName = "Recipient" };
 
 		await orchestrator.StartConversationAsync("evt-direct", "800", "801", "800");
 		var response = await orchestrator.HandleIncomingMessageAsync("evt-direct", "800", "Привіт, що тобі подобається?");
 
-		Assert.That(textGeneration.CallCount, Is.EqualTo(1));
-		Assert.That(telegram.Messages.Count(message => message.UserId == "801" && message.Text.Contains("AI-помічник Санти зараз зайнятий")), Is.EqualTo(1));
-		Assert.That(telegram.Messages.Any(message => message.UserId == "801" && message.Text.Contains("AI-помічник Санти зараз зайнятий")), Is.True);
-		Assert.That(response, Is.EqualTo("Повідомлення доставлено."));
-		Assert.That(telegram.Messages.Any(message => message.UserId == "801" && message.Text.Contains("Анонімне повідомлення від Санти:") && message.Text.Contains("Привіт, що тобі подобається?")), Is.True);
-		Assert.That(telegram.Messages.Count(message => message.UserId == "801" && message.Text.Contains("Анонімне повідомлення від Санти:") && message.Text.Contains("Привіт, що тобі подобається?")), Is.EqualTo(1));
-		Assert.That(pending.TryGetConversation("800", out var state), Is.True);
-		Assert.That(state!.Data["aiEnabled"], Is.EqualTo(bool.FalseString));
-		Assert.That(telegram.SentMessages.Where(message => message.Text.Contains("Пробую зв’язатися") || message.Text.Contains("Продовжую стукати"))
-			.All(message => message.Markup == null), Is.True);
-		Assert.That(telegram.SentMessages.Where(message => message.Text.Contains("AI-помічник Санти зараз зайнятий"))
+		Assert.That(textGeneration.CallCount, Is.EqualTo(0));
+		Assert.That(response, Is.Null);
+		Assert.That(telegram.Messages.Any(message => message.UserId == "801" && message.Text.Contains("Миколайко: Привіт, що тобі подобається?")), Is.True);
+		Assert.That(telegram.Messages.Any(message => message.UserId == "800" && message.Text.Contains("Повідомлення надіслано.")), Is.True);
+		Assert.That(telegram.SentMessages.Where(message => message.UserId is "800" or "801")
 			.All(message => HasEndConversationButton(message.Markup)), Is.True);
-		Assert.That(telegram.SentMessages.Count(message => message.UserId == "800" && message.Text.Contains("AI-помічник Санти зараз зайнятий")), Is.EqualTo(1));
-		Assert.That(telegram.SentMessages.Count(message => message.UserId == "801" && message.Text.Contains("AI-помічник Санти зараз зайнятий")), Is.EqualTo(1));
-		Assert.That(telegram.SentMessages.Count(message => message.UserId == "800" && message.Text.Contains("Пробую зв’язатися")), Is.EqualTo(1));
-		Assert.That(telegram.SentMessages.Any(message => message.UserId == "801" && message.Text.Contains("Пробую зв’язатися")), Is.False);
 	}
 
 	private static bool HasEndConversationButton(ReplyMarkup? markup) =>
@@ -860,7 +859,9 @@ public class SecretSantaWorkflowTests
 		markup is InlineKeyboardMarkup keyboard &&
 		keyboard.InlineKeyboard.SelectMany(row => row).Select(button => button.CallbackData)
 			.ToHashSet()
-			.SetEquals(["chat:recipient", "chat:santa"]);
+			.SetEquals(["chat:recipient", "chat:santa", "gift:ready"]);
+
+
 
 	private sealed class FakeEventRepository(ConcurrentDictionary<string, Event> store) : IEventRepository
 	{

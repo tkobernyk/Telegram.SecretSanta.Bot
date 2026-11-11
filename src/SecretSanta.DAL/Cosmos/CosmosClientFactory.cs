@@ -14,10 +14,11 @@ public sealed class CosmosClientFactory<TModel> : ICosmosClientFactory<TModel>
 
 	public Container GetContainer()
 	{
-		var containerName = $"{nameof(TModel)}s";
+		var modelName = typeof(TModel).Name;
+		var containerName = $"{modelName}s";
 		if (string.IsNullOrWhiteSpace(containerName))
 		{
-			throw new ArgumentException($"Unable to resolve Cosmos container for model type '{nameof(TModel)}'.");
+			throw new ArgumentException($"Unable to resolve Cosmos container for model type '{modelName}'.");
 		}
 
 		return _provider.Client.GetContainer(_provider.DatabaseName, containerName);

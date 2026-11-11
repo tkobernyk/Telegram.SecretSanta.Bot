@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using Microsoft.Azure.Functions.Worker.Http;
 
 namespace SecretSanta.Functions.Services

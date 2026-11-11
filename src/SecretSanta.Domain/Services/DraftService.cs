@@ -1,60 +1,57 @@
 using SecretSanta.Domain.Abstractions;
-using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
-using SecretSanta.Domain.Enums;
 
 namespace SecretSanta.Domain.Services;
 
 public class DraftService : IDraftService
 {
-	readonly IParticipantRepository _participantRepo;
-	readonly IAssignmentRepository _assignmentRepo;
-	readonly IEventRepository _eventRepo;
-
-	public DraftService(IParticipantRepository participantRepo, IAssignmentRepository assignmentRepo, IEventRepository eventRepo)
+	public IReadOnlyList<Assignment> BuildAssignments(string eventId, IReadOnlyList<string> participantTelegramUserIds)
 	{
-		_participantRepo = participantRepo;
-		_assignmentRepo = assignmentRepo;
-		_eventRepo = eventRepo;
-	}
-
-	public async Task StartDraftAsync(string eventId, long initiatorTelegramId, CancellationToken cancellationToken = default)
-	{
-		var ev = await _eventRepo.GetByEventIdAsync(eventId, cancellationToken);
-		if (ev != null)
+		if (participantTelegramUserIds.Count < 1)
 		{
-			ev.State = EventWorkflowState.Draft;
-			ev.UpdatedAtUtc = DateTime.UtcNow;
-			await _eventRepo.UpdateAsync(ev, cancellationToken);
+			throw new InvalidOperationException("Not enough participants to run draft.");
 		}
 
-			// load participants
-			var participants = (await _participantRepo.GetAllByEventAsync(eventId, cancellationToken)).ToList();
-		if (participants.Count < 1) throw new InvalidOperationException("Not enough participants to run draft.");
-
-		// simple derangement algorithm: shuffle and ensure no self-assign; retry up to N times
 		var rng = new Random();
-		var ids = participants.Select(p => p.TelegramUserId).ToList();
-		int attempts = 0;
+		var ids = participantTelegramUserIds.ToList();
 		List<string> recipients = [];
-		while (attempts < 50)
+		for (var attempts = 0; attempts < 50; attempts++)
 		{
-			attempts++;
 			recipients = [.. ids.OrderBy(_ => rng.Next())];
-			bool ok = true;
-			for (int i = 0; i < ids.Count; i++) if (ids[i] == recipients[i]) { ok = false; break; }
-			if (ok) break;
+			var valid = true;
+			for (var index = 0; index < ids.Count; index++)
+			{
+				if (ids[index] == recipients[index])
+				{
+					valid = false;
+					break;
+				}
+			}
+
+			if (valid)
+			{
+				break;
+			}
 		}
 
-		if (recipients == null || recipients.Count != ids.Count) throw new InvalidOperationException("Failed to compute assignments without self-assigns.");
+		if (recipients.Count != ids.Count)
+		{
+			throw new InvalidOperationException("Failed to compute assignments without self-assigns.");
+		}
 
 		var draftRunId = Guid.NewGuid().ToString();
-		var assignments = new List<Assignment>();
-		for (int i = 0; i < ids.Count; i++)
+		var assignments = new List<Assignment>(ids.Count);
+		for (var index = 0; index < ids.Count; index++)
 		{
-			assignments.Add(new Assignment { EventId = eventId, DraftRunId = draftRunId, SantaTelegramUserId = long.Parse(ids[i]), RecipientTelegramUserId = long.Parse(recipients[i]) });
+			assignments.Add(new Assignment
+			{
+				EventId = eventId,
+				DraftRunId = draftRunId,
+				SantaTelegramUserId = long.Parse(ids[index]),
+				RecipientTelegramUserId = long.Parse(recipients[index])
+			});
 		}
 
-		await _assignmentRepo.CreateAssignmentsAsync(assignments, cancellationToken);
+		return assignments;
 	}
 }

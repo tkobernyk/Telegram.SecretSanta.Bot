@@ -9,13 +9,15 @@ using SecretSanta.Domain.Helpers;
 using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Handlers.Commands.Participant;
 using SecretSanta.Domain.Handlers.Commands.Voting;
+using SecretSanta.Domain.Handlers.Commands.Workflow;
+
 using SecretSanta.DAL.Entities;
-using SecretSanta.DAL.Abstractions;
+using SecretSanta.DAL.Abstractions.Repositories;
 using SecretSanta.Domain.Handlers.Commands.Conversation;
 
 namespace SecretSanta.Domain.Handlers.TelegramEndpoint;
 
-public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _telegramSender, IPendingUserInputService _pending, IEventRepository _eventRepository, IParticipantRepository _participantRepository) : IRequestHandler<TelegramEndpointRequest, TelegramEndpointResponse>
+public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _telegramSender, IEventRepository _eventRepository, IParticipantRepository _participantRepository) : IRequestHandler<TelegramEndpointRequest, TelegramEndpointResponse>
 {
 	public async Task<TelegramEndpointResponse> Handle(TelegramEndpointRequest request, CancellationToken cancellationToken)
 	{
@@ -26,47 +28,54 @@ public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _teleg
 		TelegramEndpointResponse? response = null;
 		if (!string.IsNullOrWhiteSpace(callbackData))
 		{
-			if (callbackData == "vote:start")
+			var callback = TelegramCallbackParser.Parse(callbackData);
+			switch (callback.CallbackType)
 			{
-				cmdResp = await _mediator.Send(new StartVoteSessionRequest { EventId = request.EventId, InitiatorTelegramId = request.Message?.From?.Id ?? 0, Session = new VoteSession { EventId = request.EventId } }, cancellationToken);
-			}
-			else if (callbackData.StartsWith("budget:", StringComparison.OrdinalIgnoreCase) && long.TryParse(callbackData["budget:".Length..], out var budget))
-			{
-				cmdResp = await _mediator.Send(new SubmitBudgetVoteRequest { EventId = request.EventId, TelegramUserId = request.Message?.From?.Id ?? 0, Budget = budget }, cancellationToken);
-			}
-			else if (callbackData is "gift:ready" or "gift:progress")
-			{
-				cmdResp = await _mediator.Send(new MarkReadyRequest { EventId = request.EventId, TelegramUserId = request.Message?.From?.Id ?? 0, GiftStatus = callbackData == "gift:ready" ? GiftStatusValue.Ready : GiftStatusValue.InProgress }, cancellationToken);
-			}
-			else if (callbackData is "chat:recipient" or "chat:santa")
-			{
-				cmdResp = await _mediator.Send(new Commands.Conversation.StartConversationRequest { EventId = request.EventId, InitiatorTelegramUserId = telegramUserId, StartTarget = callbackData == "chat:recipient" ? "Recipient" : "Santa" }, cancellationToken);
-			}
-			else if (callbackData == "profile:view")
-			{
-				cmdResp = await _mediator.Send(new ProfileRequest { EventId = request.EventId, Message = request.Message }, cancellationToken);
-			}
-			else if (callbackData == "wishlist:edit")
-			{
-				var wishlistResponse = await _mediator.Send(new WishlistRequest
-				{
-					EventId = request.EventId,
-					Message = new SecretSanta.Domain.Models.TelegramMessage
+				case TelegramCallbackType.VoteStart:
+					cmdResp = await _mediator.Send(new StartVoteSessionRequest
 					{
-						From = request.Message?.From,
-						Text = "/wishlist"
-					}
-				}, cancellationToken);
-				cmdResp = wishlistResponse;
-			}
-			else if (callbackData == "conversation:end")
-			{
-				await _mediator.Send(new Commands.Conversation.CancelConversationRequest { EventId = request.EventId, InitiatorTelegramUserId = telegramUserId }, cancellationToken);
-				cmdResp = new CommandResponse { StatusCode = System.Net.HttpStatusCode.NoContent };
-			}
-			else if (callbackData is "start:create" or "start:join")
-			{
-				cmdResp = await _mediator.Send(new StartRequest { EventId = request.EventId, Message = request.Message }, cancellationToken);
+						EventId = request.EventId,
+						InitiatorTelegramId = request.Message?.From?.Id ?? 0,
+						Session = new VoteSession { EventId = request.EventId }
+					}, cancellationToken);
+					break;
+				case TelegramCallbackType.BudgetVote when callback.BudgetValue.HasValue:
+					cmdResp = await _mediator.Send(new SubmitBudgetVoteRequest { EventId = request.EventId, TelegramUserId = request.Message?.From?.Id ?? 0, Budget = callback.BudgetValue.Value }, cancellationToken);
+					break;
+				case TelegramCallbackType.GiftReady:
+					cmdResp = await _mediator.Send(new MarkReadyRequest { EventId = request.EventId, TelegramUserId = request.Message?.From?.Id ?? 0, GiftStatus = GiftStatusValue.Ready }, cancellationToken);
+					break;
+				case TelegramCallbackType.GiftProgress:
+					cmdResp = await _mediator.Send(new MarkReadyRequest { EventId = request.EventId, TelegramUserId = request.Message?.From?.Id ?? 0, GiftStatus = GiftStatusValue.InProgress }, cancellationToken);
+					break;
+				case TelegramCallbackType.ChatRecipient:
+					cmdResp = await _mediator.Send(new Commands.Conversation.StartConversationRequest { EventId = request.EventId, InitiatorTelegramUserId = telegramUserId, StartTarget = "Recipient" }, cancellationToken);
+					break;
+				case TelegramCallbackType.ChatSanta:
+					cmdResp = await _mediator.Send(new Commands.Conversation.StartConversationRequest { EventId = request.EventId, InitiatorTelegramUserId = telegramUserId, StartTarget = "Santa" }, cancellationToken);
+					break;
+				case TelegramCallbackType.ProfileView:
+					cmdResp = await _mediator.Send(new ProfileRequest { EventId = request.EventId, Message = request.Message }, cancellationToken);
+					break;
+				case TelegramCallbackType.WishlistEdit:
+					cmdResp = await _mediator.Send(new WishlistRequest
+					{
+						EventId = request.EventId,
+						Message = new Models.TelegramMessage
+						{
+							From = request.Message?.From,
+							Text = "wishlist:edit"
+						}
+					}, cancellationToken);
+					break;
+				case TelegramCallbackType.ConversationEnd:
+					await _mediator.Send(new Commands.Conversation.CancelConversationRequest { EventId = request.EventId, InitiatorTelegramUserId = telegramUserId }, cancellationToken);
+					cmdResp = new CommandResponse { StatusCode = System.Net.HttpStatusCode.NoContent };
+					break;
+				case TelegramCallbackType.StartCreate:
+				case TelegramCallbackType.StartJoin:
+					cmdResp = await _mediator.Send(new StartRequest { EventId = request.EventId, Message = request.Message }, cancellationToken);
+					break;
 			}
 		}
 		else if (string.Equals(text, "/start_vote", StringComparison.OrdinalIgnoreCase))
@@ -78,25 +87,7 @@ public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _teleg
 				Session = new VoteSession { EventId = request.EventId }
 			}, cancellationToken);
 		}
-		else if (string.Equals(text, "/gift_ready", StringComparison.OrdinalIgnoreCase))
-		{
-			cmdResp = await _mediator.Send(new MarkReadyRequest
-			{
-				EventId = request.EventId,
-				TelegramUserId = request.Message?.From?.Id ?? 0,
-				GiftStatus = GiftStatusValue.Ready
-			}, cancellationToken);
-		}
-		else if (string.Equals(text, "/gift_progress", StringComparison.OrdinalIgnoreCase))
-		{
-			cmdResp = await _mediator.Send(new MarkReadyRequest
-			{
-				EventId = request.EventId,
-				TelegramUserId = request.Message?.From?.Id ?? 0,
-				GiftStatus = GiftStatusValue.InProgress
-			}, cancellationToken);
-		}
-		else if (string.IsNullOrWhiteSpace(callbackData) && !string.IsNullOrEmpty(telegramUserId) && _pending.TryGetConversation(telegramUserId, out var deliveryState) && deliveryState?.WizardName == "delivery_info" && !string.IsNullOrWhiteSpace(text))
+		else if (string.IsNullOrWhiteSpace(callbackData) && !string.IsNullOrEmpty(telegramUserId) && InteractionStateStore.TryGetConversation(telegramUserId, out var deliveryState) && deliveryState?.WizardName == "delivery_info" && !string.IsNullOrWhiteSpace(text))
 		{
 			var ev = await _eventRepository.GetByEventIdAsync(request.EventId, cancellationToken);
 			if (ev == null || ev.OrganizerTelegramId.ToString() != telegramUserId)
@@ -107,19 +98,31 @@ public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _teleg
 			{
 				ev.DeliveryLocation = text;
 				ev.DeliveryMessageSentUtc = DateTime.UtcNow;
-				ev.State = EventWorkflowState.Done;
-				ev.UpdatedAtUtc = DateTime.UtcNow;
 				await _eventRepository.UpdateAsync(ev, cancellationToken);
-				_pending.EndConversation(telegramUserId);
-				var participants = await _participantRepository.GetAllByEventAsync(request.EventId, cancellationToken);
-				foreach (var participant in participants)
+				var transitionResponse = await _mediator.Send(new ApplyEventTransitionRequest
 				{
-					await _telegramSender.SendMessageAsync(participant.TelegramUserId, $"Місце й час вручення Secret Santa: {text}");
+					EventId = request.EventId,
+					Trigger = EventWorkflowTrigger.DeliveryInfoProvided,
+					ChangedByTelegramId = request.Message?.From?.Id,
+					Note = "Delivery info provided by organizer"
+				}, cancellationToken);
+				if (transitionResponse.StatusCode != System.Net.HttpStatusCode.OK)
+				{
+					cmdResp = transitionResponse;
 				}
-				cmdResp = new CommandResponse { ResponseMessage = "Дякую! Місце й час вручення надіслані всім учасникам." };
+				else
+				{
+					InteractionStateStore.EndConversation(telegramUserId);
+					var participants = await _participantRepository.GetAllByEventAsync(request.EventId, cancellationToken);
+					foreach (var participant in participants)
+					{
+						await _telegramSender.SendMessageAsync(participant.TelegramUserId, $"Місце й час вручення Секретного Миколайка: {text}");
+					}
+					cmdResp = new CommandResponse { ResponseMessage = "Дякую! Місце й час вручення надіслані всім учасникам." };
+				}
 			}
 		}
-		else if (string.IsNullOrWhiteSpace(callbackData) && !string.IsNullOrEmpty(telegramUserId) && _pending.TryGetConversation(telegramUserId, out var startState) && startState != null && string.Equals(startState.WizardName, "start_event", StringComparison.OrdinalIgnoreCase))
+		else if (string.IsNullOrWhiteSpace(callbackData) && !string.IsNullOrEmpty(telegramUserId) && InteractionStateStore.TryGetConversation(telegramUserId, out var startState) && startState != null && string.Equals(startState.WizardName, "start_event", StringComparison.OrdinalIgnoreCase))
 		{
 			var startReq = new StartRequest { EventId = request.EventId, Message = request.Message };
 			var startResp = await _mediator.Send(startReq, cancellationToken);
@@ -136,34 +139,6 @@ public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _teleg
 					cmdResp = startResp;
 					break;
 				}
-				case CommandType.Profile:
-				{
-					var profileReq = new ProfileRequest { EventId = request.EventId, Message = request.Message };
-					var profileResp = await _mediator.Send(profileReq, cancellationToken);
-					cmdResp = profileResp;
-					break;
-				}
-				case CommandType.Wishlist:
-				{
-					var wishlistReq = new WishlistRequest { EventId = request.EventId, Message = request.Message };
-					var wishlistResp = await _mediator.Send(wishlistReq, cancellationToken);
-					cmdResp = wishlistResp;
-					break;
-				}
-				case CommandType.AskSanta:
-				{
-					var askSantaReq = new Commands.Conversation.StartConversationRequest { EventId = request.EventId, InitiatorTelegramUserId = request.Message?.From?.Id.ToString() ?? string.Empty, StartTarget = "Santa" };
-					var askSantaResp = await _mediator.Send(askSantaReq, cancellationToken);
-					cmdResp = askSantaResp;
-					break;
-				}
-				case CommandType.AskRecipient:
-				{
-					var askRecReq = new Commands.Conversation.StartConversationRequest { EventId = request.EventId, InitiatorTelegramUserId = request.Message?.From?.Id.ToString() ?? string.Empty, StartTarget = "Recipient" };
-					var askRecResp = await _mediator.Send(askRecReq, cancellationToken);
-					cmdResp = askRecResp;
-					break;
-				}
 				case CommandType.StartVote:
 				{
 					cmdResp = await _mediator.Send(new StartVoteSessionRequest
@@ -171,26 +146,6 @@ public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _teleg
 						EventId = request.EventId,
 						InitiatorTelegramId = request.Message?.From?.Id ?? 0,
 						Session = new VoteSession { EventId = request.EventId }
-					}, cancellationToken);
-					break;
-				}
-				case CommandType.GiftReady:
-				{
-					cmdResp = await _mediator.Send(new MarkReadyRequest
-					{
-						EventId = request.EventId,
-						TelegramUserId = request.Message?.From?.Id ?? 0,
-						GiftStatus = GiftStatusValue.Ready
-					}, cancellationToken);
-					break;
-				}
-				case CommandType.GiftProgress:
-				{
-					cmdResp = await _mediator.Send(new MarkReadyRequest
-					{
-						EventId = request.EventId,
-						TelegramUserId = request.Message?.From?.Id ?? 0,
-						GiftStatus = GiftStatusValue.InProgress
 					}, cancellationToken);
 					break;
 				}
@@ -202,7 +157,7 @@ public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _teleg
 		else if (cmdResp == null && string.IsNullOrWhiteSpace(callbackData))
 		{
 			// first give general conversational handlers a chance (incoming message flows)
-			var incomingReq = new SecretSanta.Domain.Handlers.Commands.Conversation.IncomingMessageRequest { EventId = request.EventId, Message = request.Message };
+			var incomingReq = new IncomingMessageRequest { EventId = request.EventId, Message = request.Message };
 			var incomingResp = await _mediator.Send(incomingReq, cancellationToken);
 			if (incomingResp?.ResponseMessage != null)
 			{

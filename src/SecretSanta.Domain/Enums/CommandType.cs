@@ -6,30 +6,8 @@ internal enum CommandType
 {
 	[Display(Name = "/start")]
 	Start = 0,
-	[Display(Name = "/profile")]
-	Profile = 1,
-	[Display(Name = "/wishlist")]
-	Wishlist = 2,
-	[Display(Name = "/ask_santa")]
-	AskSanta = 3,
-	[Display(Name = "/ask_recipient")]
-	AskRecipient = 4,
 	[Display(Name = "/start_vote")]
-	StartVote = 5,
-	[Display(Name = "/gift_ready")]
-	GiftReady = 6,
-	[Display(Name = "/gift_progress")]
-	GiftProgress = 7,
-	[Display(Name = "/vote_250")]
-	Vote250 = 8,
-	[Display(Name = "/vote_500")]
-	Vote500 = 9,
-	[Display(Name = "/vote_750")]
-	Vote750 = 10,
-	[Display(Name = "/vote_1000")]
-	Vote1000 = 11,
-	[Display(Name = "/vote_1500")]
-	Vote1500 = 12,
+	StartVote = 1,
 }
 
 public static class EventWorkflowState

@@ -1,14 +1,15 @@
 using MediatR;
-using SecretSanta.DAL.Abstractions;
 using SecretSanta.DAL.Entities;
-using SecretSanta.Domain.Abstractions;
 using SecretSanta.Domain.Enums;
 using SecretSanta.Domain.Models;
+using SecretSanta.Domain.Mappings;
 using SecretSanta.Domain.Helpers;
+using SecretSanta.Domain.Handlers.Common;
+using SecretSanta.DAL.Abstractions.Repositories;
 
 namespace SecretSanta.Domain.Handlers.Commands.Start;
 
-public class StartCreateHandler(IParticipantService participantService, IEventRepository eventRepository, IPendingUserInputService pending) : IRequestHandler<StartCreateRequest, StartResponse>
+public class StartCreateHandler(IParticipantRepository participantRepository, IEventRepository eventRepository, IUserEventSessionRepository userEventSessionRepository) : IRequestHandler<StartCreateRequest, StartResponse>
 {
 	public async Task<StartResponse> Handle(StartCreateRequest request, CancellationToken cancellationToken)
 	{
@@ -18,15 +19,16 @@ public class StartCreateHandler(IParticipantService participantService, IEventRe
 			return new StartResponse { StatusCode = System.Net.HttpStatusCode.BadRequest, ResponseMessage = "Missing telegram user id." };
 		}
 
-		var displayName = request.DisplayName ?? request.Message?.From?.FirstName ?? request.Message?.From?.Username ?? $"user-{telegramUserId}";
+		var displayName = $"{request.Message?.From?.FirstName} {request.Message?.From?.LastName} (@{request.Message?.From?.Username ?? $"user-{telegramUserId}"})";
 		var eventEntity = await CreateNewEventAsync(telegramUserId, displayName, cancellationToken);
-		await pending.SetActiveEventIdAsync(telegramUserId, eventEntity.EventId, cancellationToken);
-		pending.EndConversation(telegramUserId);
+		InteractionStateStore.SetActiveEventId(telegramUserId, eventEntity.EventId);
+		await userEventSessionRepository.UpsertAsync(new UserEventSession { TelegramUserId = telegramUserId, EventId = eventEntity.EventId }, cancellationToken);
+		InteractionStateStore.EndConversation(telegramUserId);
 		return new StartResponse
 		{
 			StatusCode = System.Net.HttpStatusCode.Created,
 			Payload = new { eventId = eventEntity.EventId, joinCode = eventEntity.JoinCode },
-			ResponseMessage = $"Ви створили новий Secret Santa. Ключ доступу: {eventEntity.JoinCode}\nПоділіться ним із друзями.\nЗаповніть ваш профіль або побажання кнопками нижче.",
+			ResponseMessage = $"Ви створили нову подію Секретний Миколайко. Ключ доступу: {eventEntity.JoinCode}\nПоділіться ним із друзями.\nЗаповніть ваш профіль або побажання кнопками нижче.",
 			ReplyMarkup = ProfileWishlistKeyboard.Create()
 		};
 	}
@@ -67,9 +69,10 @@ public class StartCreateHandler(IParticipantService participantService, IEventRe
 
 	private async Task<StartResponse> RegisterParticipantAsync(string eventId, string telegramUserId, string displayName, CancellationToken cancellationToken)
 	{
-		var existing = await participantService.GetByTelegramUserIdAsync(eventId, telegramUserId, cancellationToken);
-		if (existing != null)
+		var existingEntity = await participantRepository.GetByTelegramUserIdAsync(eventId, telegramUserId, cancellationToken);
+		if (existingEntity != null)
 		{
+			var existing = ParticipantMapper.Map(existingEntity);
 			return new StartResponse
 			{
 				StatusCode = System.Net.HttpStatusCode.OK,
@@ -94,7 +97,7 @@ public class StartCreateHandler(IParticipantService participantService, IEventRe
 			UpdatedAtUtc = DateTime.UtcNow
 		};
 
-		await participantService.CreateAsync(participant, cancellationToken);
+		await participantRepository.CreateAsync(ParticipantMapper.Map(participant), cancellationToken);
 		return new StartResponse
 		{
 			StatusCode = System.Net.HttpStatusCode.Created,

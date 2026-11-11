@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Text;
 using System.Text.Json;
 
 namespace SecretSanta.Infrastructure.AI;
@@ -107,19 +108,89 @@ public class GroqService : ITextGenerationService
 
 	private static string GetGeneratedText(JsonDocument json)
 	{
-		if (json.RootElement.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
+		if (json.RootElement.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array)
 		{
-			var first = choices[0];
-			if (first.TryGetProperty("message", out var message) && message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+			foreach (var choice in choices.EnumerateArray())
 			{
-				var result = content.GetString();
-				if (!string.IsNullOrWhiteSpace(result))
+				if (choice.TryGetProperty("message", out var message))
 				{
-					return result;
+					if (message.TryGetProperty("content", out var content))
+					{
+						var extracted = ExtractText(content);
+						if (!string.IsNullOrWhiteSpace(extracted))
+						{
+							return extracted!;
+						}
+					}
+
+					if (message.TryGetProperty("reasoning", out var reasoning) && reasoning.ValueKind == JsonValueKind.String)
+					{
+						var reasoningText = reasoning.GetString();
+						if (!string.IsNullOrWhiteSpace(reasoningText))
+						{
+							return reasoningText!;
+						}
+					}
+				}
+
+				if (choice.TryGetProperty("text", out var text))
+				{
+					var extracted = ExtractText(text);
+					if (!string.IsNullOrWhiteSpace(extracted))
+					{
+						return extracted!;
+					}
 				}
 			}
 		}
 
+		if (json.RootElement.TryGetProperty("output_text", out var outputText))
+		{
+			var extracted = ExtractText(outputText);
+			if (!string.IsNullOrWhiteSpace(extracted))
+			{
+				return extracted!;
+			}
+		}
+
 		throw new InvalidOperationException("Groq response did not contain generated text.");
+	}
+
+	private static string? ExtractText(JsonElement element)
+	{
+		switch (element.ValueKind)
+		{
+			case JsonValueKind.String:
+				return element.GetString();
+			case JsonValueKind.Array:
+			{
+				var sb = new StringBuilder();
+				foreach (var item in element.EnumerateArray())
+				{
+					var part = ExtractText(item);
+					if (!string.IsNullOrWhiteSpace(part))
+					{
+						if (sb.Length > 0)
+						{
+							sb.Append('\n');
+						}
+						sb.Append(part);
+					}
+				}
+				return sb.Length == 0 ? null : sb.ToString();
+			}
+			case JsonValueKind.Object:
+				if (element.TryGetProperty("text", out var textProp))
+				{
+					return ExtractText(textProp);
+				}
+				if (element.TryGetProperty("content", out var contentProp))
+				{
+					return ExtractText(contentProp);
+				}
+				break;
+		}
+
+		return null;
 	}
 }

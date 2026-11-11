@@ -1,9 +1,8 @@
-using System.Threading;
-using System.Threading.Tasks;
+using SecretSanta.DAL.Entities;
 
 namespace SecretSanta.Domain.Abstractions;
 
 public interface IDraftService
 {
-	Task StartDraftAsync(string eventId, long initiatorTelegramId, CancellationToken cancellationToken = default);
+	IReadOnlyList<Assignment> BuildAssignments(string eventId, IReadOnlyList<string> participantTelegramUserIds);
 }
