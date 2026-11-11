@@ -86,6 +86,13 @@ public sealed class SubmitBudgetVoteHandler : IRequestHandler<SubmitBudgetVoteRe
 						refreshedEvent.BudgetDiscussionCount += 1;
 						await _eventRepository.UpdateAsync(refreshedEvent, cancellationToken);
 					}
+
+					var participantsForDiscussion = (await _participantRepository.GetAllByEventAsync(request.EventId, cancellationToken)).ToList();
+					var voteStatisticsMessage = BuildNoConsensusStatisticsMessage(sessionVotes);
+					foreach (var participantForDiscussion in participantsForDiscussion)
+					{
+						await _telegramSender.SendMessageAsync(participantForDiscussion.TelegramUserId, voteStatisticsMessage);
+					}
 				}
 			}
 
@@ -157,5 +164,29 @@ public sealed class SubmitBudgetVoteHandler : IRequestHandler<SubmitBudgetVoteRe
 		}
 
 		return new CommandResponse { StatusCode = System.Net.HttpStatusCode.NoContent };
+	}
+
+	private static string BuildNoConsensusStatisticsMessage(IEnumerable<Vote> votes)
+	{
+		var statistics = votes
+			.GroupBy(vote => vote.OptionId)
+			.Select(group => new
+			{
+				Budget = long.TryParse(group.Key, out var parsedBudget) ? parsedBudget : 0,
+				VotesCount = group.Count()
+			})
+			.OrderByDescending(item => item.VotesCount)
+			.ThenByDescending(item => item.Budget)
+			.ToList();
+
+		if (statistics.Count == 0)
+		{
+			return "Немає консолідованої відповіді. Поки що немає жодного голосу для обговорення.";
+		}
+
+		var rows = statistics
+			.Select(item => $"• {item.Budget} грн — {item.VotesCount} голос(ів)");
+
+		return $"Немає консолідованої відповіді. Результати голосування:\n{string.Join("\n", rows)}\n\nОбговоріть бюджет у групі та перезапустіть голосування.";
 	}
 }
