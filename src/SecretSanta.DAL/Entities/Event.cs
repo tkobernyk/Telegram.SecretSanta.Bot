@@ -31,6 +31,9 @@ public class Event
 	[JsonProperty("budgetConfirmed")]
 	public long? BudgetConfirmed { get; set; }
 
+	[JsonProperty("giftPreparationDeadlineUtc")]
+	public DateTime? GiftPreparationDeadlineUtc { get; set; }
+
 	[JsonProperty("deliveryTimeUtc")]
 	public DateTime? DeliveryTimeUtc { get; set; }
 

@@ -8,5 +8,6 @@ public class StartCreateRequest : IRequest<StartResponse>
 	public string EventId { get; set; } = string.Empty;
 	public string TelegramUserId { get; set; } = string.Empty;
 	public string? DisplayName { get; set; }
+	public DateTime? GiftPreparationDeadlineUtc { get; set; }
 	public TelegramMessage? Message { get; set; }
 }

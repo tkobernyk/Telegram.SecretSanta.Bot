@@ -128,6 +128,9 @@ public sealed class SubmitBudgetVoteHandler : IRequestHandler<SubmitBudgetVoteRe
 
 		var assignments = await _assignmentRepository.GetAssignmentsByEventAsync(request.EventId, cancellationToken);
 		var participants = (await _participantRepository.GetAllByEventAsync(request.EventId, cancellationToken)).ToDictionary(p => p.TelegramUserId);
+		var deadlineText = ev.GiftPreparationDeadlineUtc.HasValue
+			? $"Підготуйте подарунок до {ev.GiftPreparationDeadlineUtc.Value:dd.MM.yyyy}."
+			: null;
 		foreach (var assignment in assignments.GroupBy(a => a.SantaTelegramUserId).Select(group => group.First()))
 		{
 			if (!participants.TryGetValue(assignment.SantaTelegramUserId.ToString(), out var santa) || !participants.TryGetValue(assignment.RecipientTelegramUserId.ToString(), out var recipient))
@@ -149,7 +152,8 @@ public sealed class SubmitBudgetVoteHandler : IRequestHandler<SubmitBudgetVoteRe
 				Улюблені кольори: {recipient.PreferredColors ?? "Не заповнені"}
 				Уникати категорії: {recipient.AvoidCategories ?? "Не заповнені"}
 				Інші побажання: {recipient.OtherPreferences ?? "Не заповнені"}
-				
+				{deadlineText}
+
 				Використайте кнопки нижче для анонімного спілкування та оновлення статусу подарунка.
 				""";
 				

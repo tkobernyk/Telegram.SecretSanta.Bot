@@ -74,6 +74,7 @@ public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _teleg
 					break;
 				case TelegramCallbackType.StartCreate:
 				case TelegramCallbackType.StartJoin:
+				case TelegramCallbackType.Calendar:
 					cmdResp = await _mediator.Send(new StartRequest { EventId = request.EventId, Message = request.Message }, cancellationToken);
 					break;
 			}
@@ -156,21 +157,37 @@ public class TelegramEndpointHandler(IMediator _mediator, ITelegramSender _teleg
 		}
 		else if (cmdResp == null && string.IsNullOrWhiteSpace(callbackData))
 		{
-			// first give general conversational handlers a chance (incoming message flows)
-			var incomingReq = new IncomingMessageRequest { EventId = request.EventId, Message = request.Message };
-			var incomingResp = await _mediator.Send(incomingReq, cancellationToken);
-			if (incomingResp?.ResponseMessage != null)
+			if (!string.IsNullOrEmpty(telegramUserId)
+				&& InteractionStateStore.TryGetConversation(telegramUserId, out var currentState)
+				&& currentState != null
+				&& string.Equals(currentState.WizardName, "wishlist", StringComparison.OrdinalIgnoreCase))
 			{
-				cmdResp = incomingResp;
-			}
-			else
-			{
-				// fallback to wishlist flow
 				var wishlistReq = new WishlistRequest { EventId = request.EventId, Message = request.Message };
 				var wishlistResp = await _mediator.Send(wishlistReq, cancellationToken);
 				if (wishlistResp?.ResponseMessage != null)
 				{
 					cmdResp = wishlistResp;
+				}
+			}
+
+			if (cmdResp == null)
+			{
+				// first give general conversational handlers a chance (incoming message flows)
+				var incomingReq = new IncomingMessageRequest { EventId = request.EventId, Message = request.Message };
+				var incomingResp = await _mediator.Send(incomingReq, cancellationToken);
+				if (incomingResp?.ResponseMessage != null)
+				{
+					cmdResp = incomingResp;
+				}
+				else
+				{
+					// fallback to wishlist flow
+					var wishlistReq = new WishlistRequest { EventId = request.EventId, Message = request.Message };
+					var wishlistResp = await _mediator.Send(wishlistReq, cancellationToken);
+					if (wishlistResp?.ResponseMessage != null)
+					{
+						cmdResp = wishlistResp;
+					}
 				}
 			}
 		}

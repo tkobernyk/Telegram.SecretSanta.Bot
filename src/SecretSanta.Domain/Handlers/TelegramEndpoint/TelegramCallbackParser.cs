@@ -15,6 +15,11 @@ internal static class TelegramCallbackParser
 			return new TelegramCallbackParseResult { CallbackType = TelegramCallbackType.BudgetVote, BudgetValue = budgetValue };
 		}
 
+		if (callbackData.StartsWith("calendar:", StringComparison.OrdinalIgnoreCase))
+		{
+			return new TelegramCallbackParseResult { CallbackType = TelegramCallbackType.Calendar };
+		}
+
 		return callbackData switch
 		{
 			"vote:start" => new TelegramCallbackParseResult { CallbackType = TelegramCallbackType.VoteStart },

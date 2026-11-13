@@ -20,20 +20,24 @@ public class StartCreateHandler(IParticipantRepository participantRepository, IE
 		}
 
 		var displayName = $"{request.Message?.From?.FirstName} {request.Message?.From?.LastName} (@{request.Message?.From?.Username ?? $"user-{telegramUserId}"})";
-		var eventEntity = await CreateNewEventAsync(telegramUserId, displayName, cancellationToken);
+		var eventEntity = await CreateNewEventAsync(telegramUserId, displayName, request.GiftPreparationDeadlineUtc, cancellationToken);
 		InteractionStateStore.SetActiveEventId(telegramUserId, eventEntity.EventId);
 		await userEventSessionRepository.UpsertAsync(new UserEventSession { TelegramUserId = telegramUserId, EventId = eventEntity.EventId }, cancellationToken);
 		InteractionStateStore.EndConversation(telegramUserId);
+		var deadlineLine = eventEntity.GiftPreparationDeadlineUtc.HasValue
+			? $"\nПідготуйте подарунки до {eventEntity.GiftPreparationDeadlineUtc.Value:dd.MM.yyyy}."
+			: string.Empty;
+
 		return new StartResponse
 		{
 			StatusCode = System.Net.HttpStatusCode.Created,
 			Payload = new { eventId = eventEntity.EventId, joinCode = eventEntity.JoinCode },
-			ResponseMessage = $"Ви створили нову подію Секретний Миколайко. Ключ доступу: {eventEntity.JoinCode}\nПоділіться ним із друзями.\nЗаповніть ваш профіль або побажання кнопками нижче.",
+			ResponseMessage = $"Ви створили нову подію Секретний Миколайко. Ключ доступу: {eventEntity.JoinCode}\nПоділіться ним із друзями.{deadlineLine}\nЗаповніть ваш профіль або побажання кнопками нижче.",
 			ReplyMarkup = ProfileWishlistKeyboard.Create()
 		};
 	}
 
-	private async Task<Event> CreateNewEventAsync(string telegramUserId, string displayName, CancellationToken cancellationToken)
+	private async Task<Event> CreateNewEventAsync(string telegramUserId, string displayName, DateTime? giftPreparationDeadlineUtc, CancellationToken cancellationToken)
 	{
 		var joinCode = await GenerateUniqueJoinCodeAsync(cancellationToken);
 		var eventEntity = new Event
@@ -44,6 +48,7 @@ public class StartCreateHandler(IParticipantRepository participantRepository, IE
 			OrganizerTelegramId = long.Parse(telegramUserId),
 			CreatedByTelegramId = long.Parse(telegramUserId),
 			State = EventWorkflowState.Registration,
+			GiftPreparationDeadlineUtc = giftPreparationDeadlineUtc,
 			CreatedAtUtc = DateTime.UtcNow,
 			UpdatedAtUtc = DateTime.UtcNow
 		};

@@ -13,5 +13,6 @@ internal enum TelegramCallbackType
 	WishlistEdit,
 	ConversationEnd,
 	StartCreate,
-	StartJoin
+	StartJoin,
+	Calendar
 }

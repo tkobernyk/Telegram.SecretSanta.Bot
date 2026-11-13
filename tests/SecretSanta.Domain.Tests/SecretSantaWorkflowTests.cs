@@ -303,7 +303,7 @@ public class SecretSantaWorkflowTests
 	}
 
 	[Test]
-	public async Task StartHandler_CreateButton_AutoRegistersOrganizerAndEndsStartWizard()
+	public async Task StartHandler_CreateButton_StartsDeadlineCalendarSelection()
 	{
 		var eventStore = new ConcurrentDictionary<string, Event>();
 		var participantStore = new ConcurrentDictionary<string, Participant>();
@@ -321,12 +321,14 @@ public class SecretSantaWorkflowTests
 			Message = new TelegramMessage { CallbackData = "start:create", From = from }
 		}, CancellationToken.None);
 
-		var eventEntity = eventStore.Values.Single();
-		Assert.That(response.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.Created));
-		Assert.That(participantStore.Values.Count(p => p.EventId == eventEntity.EventId && p.TelegramUserId == "202"), Is.EqualTo(1));
-		Assert.That(InteractionStateStoreProxy.TryGetConversation("202", out _), Is.False);
-		Assert.That(pending.TryGetActiveEventId("202", out var activeEventId), Is.True);
-		Assert.That(activeEventId, Is.EqualTo(eventEntity.EventId));
+		Assert.That(response.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.OK));
+		Assert.That(response.ResponseMessage, Is.EqualTo("Оберіть дату, до якої має бути готовий подарунок:"));
+		Assert.That(response.ReplyMarkup, Is.TypeOf<InlineKeyboardMarkup>());
+		Assert.That(eventStore, Is.Empty);
+		Assert.That(participantStore, Is.Empty);
+		Assert.That(InteractionStateStoreProxy.TryGetConversation("202", out var state), Is.True);
+		Assert.That(state, Is.Not.Null);
+		Assert.That(state!.WizardName, Is.EqualTo("create_event_deadline"));
 	}
 
 	[Test]
