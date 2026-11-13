@@ -101,15 +101,9 @@ public class ConversationOrchestrator : IConversationOrchestrator
 
 	public async Task<string?> HandleIncomingMessageAsync(string eventId, string senderTelegramUserId, string text, CancellationToken cancellationToken = default)
 	{
-		if (!InteractionStateStore.TryGetConversation(senderTelegramUserId, out var state) || state == null)
+		if (!InteractionStateStore.TryGetConversation(senderTelegramUserId, out var state) || state == null || !string.Equals(state.WizardName, "santa_dialog", StringComparison.OrdinalIgnoreCase))
 		{
-			return null;
-		}
-
-		state.Data.TryGetValue("conversationId", out var conversationId);
-		if (string.IsNullOrWhiteSpace(conversationId))
-		{
-			return null;
+			state = new ConversationState { WizardName = "santa_dialog", StepIndex = 0 };
 		}
 
 		var convEntity = await _conversationRepo.GetActiveForParticipantAsync(eventId, senderTelegramUserId, cancellationToken);
@@ -118,6 +112,11 @@ public class ConversationOrchestrator : IConversationOrchestrator
 			InteractionStateStore.EndConversation(senderTelegramUserId);
 			return null;
 		}
+
+		state.Data["conversationId"] = convEntity.Id;
+		state.Data["santa"] = convEntity.SantaTelegramUserId;
+		state.Data["recipient"] = convEntity.RecipientTelegramUserId;
+		state.Data.TryGetValue("conversationId", out var conversationId);
 
 		if (DateTime.UtcNow - convEntity.UpdatedAtUtc > _conversationTimeout)
 		{
@@ -133,12 +132,14 @@ public class ConversationOrchestrator : IConversationOrchestrator
 			counterpartyId = string.Equals(senderTelegramUserId, convEntity.SantaTelegramUserId, StringComparison.Ordinal)
 				? convEntity.RecipientTelegramUserId
 				: convEntity.SantaTelegramUserId;
+			state.Data["counterparty"] = counterpartyId;
 		}
 
 		state.Data.TryGetValue("roleUk", out var senderRoleUk);
 		senderRoleUk ??= string.Equals(senderTelegramUserId, convEntity.SantaTelegramUserId, StringComparison.Ordinal)
 			? "Миколайко"
 			: "Отримувач";
+		state.Data["roleUk"] = senderRoleUk;
 
 		var userMsg = new ConversationMessage
 		{
